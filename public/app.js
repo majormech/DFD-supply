@@ -3,6 +3,7 @@ const state = {
   stations: [],
   recentTransactions: [],
   activeScanTarget: null,
+  activeScanFormat: null,
   stream: null,
   detector: null,
   scanTimer: null,
@@ -25,9 +26,19 @@ const els = {
   scannerStatus: document.querySelector('#scanner-status'),
   manualScanInput: document.querySelector('#manual-scan-input'),
   manualScanSubmit: document.querySelector('#manual-scan-submit'),
+  scanAddBarcodeBtn: document.querySelector('#scan-add-barcode-btn'),
+  scanAddQrBtn: document.querySelector('#scan-add-qr-btn'),
   scanIssueBtn: document.querySelector('#scan-issue-btn'),
   scanRestockBtn: document.querySelector('#scan-restock-btn'),
 };
+
+function describeScanTarget(target) {
+  if (target === 'issue') return 'issue stock';
+  if (target === 'restock') return 'restock inventory';
+  if (target === 'add-barcode') return 'save a barcode for the new item';
+  if (target === 'add-qr') return 'save a QR code for the new item';
+  return 'scan a code';
+}
 
 function showToast(message, isError = false) {
   els.toast.textContent = message;
@@ -159,11 +170,13 @@ async function onRestock(event) {
 
 async function startScanning(target) {
   state.activeScanTarget = target;
+  state.activeScanFormat = null;
   els.manualScanInput.value = '';
+  els.scannerStatus.textContent = `Opening scanner to ${describeScanTarget(target)}...`;
   els.scannerDialog.showModal();
 
   if (!('BarcodeDetector' in window)) {
-    els.scannerStatus.textContent = 'BarcodeDetector is not available in this browser. Enter the code manually below.';
+    els.scannerStatus.textContent = `BarcodeDetector is not available in this browser. Enter the code manually below to ${describeScanTarget(target)}.`;
     return;
   }
 
@@ -171,10 +184,10 @@ async function startScanning(target) {
     state.detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'] });
     state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     els.scannerVideo.srcObject = state.stream;
-    els.scannerStatus.textContent = 'Point the camera at a barcode or QR code.';
+    els.scannerStatus.textContent = `Point the camera at a barcode or QR code to ${describeScanTarget(target)}.`;
     scanLoop();
   } catch (error) {
-    els.scannerStatus.textContent = `Camera unavailable: ${error.message}. You can enter the code manually below.`;
+   els.scannerStatus.textContent = `Camera unavailable: ${error.message}. You can enter the code manually below to ${describeScanTarget(target)}.`;
   }
 }
 
@@ -184,6 +197,7 @@ async function scanLoop() {
     const barcodes = await state.detector.detect(els.scannerVideo);
     if (barcodes[0]?.rawValue) {
       els.manualScanInput.value = barcodes[0].rawValue;
+      state.activeScanFormat = barcodes[0].format || null;
       await applyScannedCode();
       return;
     }
@@ -201,6 +215,7 @@ function stopScanning() {
   state.scanTimer = null;
   state.stream = null;
   state.detector = null;
+  tate.activeScanFormat = null;
   els.scannerVideo.srcObject = null;
   els.scannerStatus.textContent = '';
 }
@@ -208,8 +223,20 @@ function stopScanning() {
 async function applyScannedCode() {
   const code = els.manualScanInput.value.trim();
   if (!code || !state.activeScanTarget) return;
-  const targetForm = state.activeScanTarget === 'issue' ? els.issueForm : els.restockForm;
-  await handleCodeFill(targetForm, code, state.activeScanTarget);
+  if ((state.activeScanTarget === 'add-barcode' || state.activeScanTarget === 'add-qr') && state.activeScanFormat) {
+    const scannedQr = state.activeScanFormat === 'qr_code';
+    if ((state.activeScanTarget === 'add-barcode' && scannedQr) || (state.activeScanTarget === 'add-qr' && !scannedQr)) {
+      throw new Error(`Detected a ${scannedQr ? 'QR code' : 'barcode'}. Use the matching save button or enter the value manually.`);
+    }
+  }
+  if (state.activeScanTarget === 'issue' || state.activeScanTarget === 'restock') {
+    const targetForm = state.activeScanTarget === 'issue' ? els.issueForm : els.restockForm;
+    await handleCodeFill(targetForm, code, state.activeScanTarget);
+  } else {
+    const fieldName = state.activeScanTarget === 'add-barcode' ? 'barcode' : 'qrCode';
+    els.addItemForm.querySelector(`input[name="${fieldName}"]`).value = code;
+    showToast(state.activeScanTarget === 'add-barcode' ? 'Barcode saved for the new item.' : 'QR code saved for the new item.');
+  }
   els.scannerDialog.close();
   stopScanning();
 }
@@ -218,6 +245,8 @@ function wireEvents() {
   els.addItemForm.addEventListener('submit', (event) => createItem(event).catch((error) => showToast(error.message, true)));
   els.issueForm.addEventListener('submit', (event) => onIssue(event).catch((error) => showToast(error.message, true)));
   els.restockForm.addEventListener('submit', (event) => onRestock(event).catch((error) => showToast(error.message, true)));
+  els.scanAddBarcodeBtn.addEventListener('click', () => startScanning('add-barcode').catch((error) => showToast(error.message, true)));
+  els.scanAddQrBtn.addEventListener('click', () => startScanning('add-qr').catch((error) => showToast(error.message, true)));
   els.scanIssueBtn.addEventListener('click', () => startScanning('issue').catch((error) => showToast(error.message, true)));
   els.scanRestockBtn.addEventListener('click', () => startScanning('restock').catch((error) => showToast(error.message, true)));
   els.manualScanSubmit.addEventListener('click', (event) => {
