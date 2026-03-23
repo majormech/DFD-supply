@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DFD Supply Inventory</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Cloudflare D1 inventory workflow</p>
+          <h1>DFD Supply Inventory</h1>
+          <p class="subtitle">
+            Track your master inventory, issue stock to any of the 7 stations, and restock supplies manually or by scanning a QR/barcode.
+          </p>
+        </div>
+        <div class="hero-card">
+          <strong id="total-item-count">0 items</strong>
+          <span id="total-stock-count">0 total units</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel stack">
+          <div class="panel-header">
+            <h2>Add a new inventory item</h2>
+            <p>Create an item once, then issue or restock it from the workflows below.</p>
+          </div>
+          <form id="add-item-form" class="stack compact">
+            <div class="grid two">
+              <label>
+                Item name
+                <input name="name" required placeholder="Nitrile Gloves" />
+              </label>
+              <label>
+                SKU
+                <input name="sku" required placeholder="GLOVE-001" />
+              </label>
+            </div>
+            <div class="grid two">
+              <label>
+                Barcode
+                <input name="barcode" placeholder="0123456789" />
+              </label>
+              <label>
+                QR code value
+                <input name="qrCode" placeholder="glove-case-001" />
+              </label>
+            </div>
+            <div class="grid two">
+              <label>
+                Opening quantity
+                <input name="totalQuantity" type="number" min="0" value="0" />
+              </label>
+              <label>
+                Description
+                <input name="description" placeholder="Case of medium gloves" />
+              </label>
+            </div>
+            <button type="submit">Add item</button>
+          </form>
+        </section>
+
+        <section class="panel stack">
+          <div class="panel-header">
+            <h2>Issue stock to a station</h2>
+            <p>Select a station, then choose an item or scan its code to remove units from the master inventory.</p>
+          </div>
+          <form id="issue-form" class="stack compact">
+            <label>
+              Station
+              <select name="stationId" id="issue-station" required></select>
+            </label>
+            <div class="grid two">
+              <label>
+                Item
+                <select name="itemId" id="issue-item"></select>
+              </label>
+              <label>
+                Quantity removed
+                <input name="quantity" type="number" min="1" value="1" required />
+              </label>
+            </div>
+            <div class="grid two">
+              <label>
+                Scan / code value
+                <input name="code" placeholder="Scan barcode or QR code" />
+              </label>
+              <label>
+                Notes
+                <input name="note" placeholder="Medic bag restock" />
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit">Remove from inventory</button>
+              <button type="button" id="scan-issue-btn" class="secondary">Scan for issue</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel stack">
+          <div class="panel-header">
+            <h2>Restock inventory</h2>
+            <p>Add incoming stock to the master inventory by selecting an item or scanning its code.</p>
+          </div>
+          <form id="restock-form" class="stack compact">
+            <div class="grid two">
+              <label>
+                Item
+                <select name="itemId" id="restock-item"></select>
+              </label>
+              <label>
+                Quantity added
+                <input name="quantity" type="number" min="1" value="1" required />
+              </label>
+            </div>
+            <div class="grid two">
+              <label>
+                Scan / code value
+                <input name="code" placeholder="Scan barcode or QR code" />
+              </label>
+              <label>
+                Notes
+                <input name="note" placeholder="Weekly delivery" />
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit">Restock inventory</button>
+              <button type="button" id="scan-restock-btn" class="secondary">Scan for restock</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel stack wide">
+          <div class="panel-header">
+            <h2>Inventory overview</h2>
+            <p>Each row shows the master quantity and how much of the item has been issued to each station.</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>SKU</th>
+                  <th>Master Qty</th>
+                  <th>Barcode / QR</th>
+                  <th>Station breakdown</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel stack wide">
+          <div class="panel-header">
+            <h2>Recent transactions</h2>
+            <p>Quick audit trail for recent issue and restock activity.</p>
+          </div>
+          <div id="transaction-list" class="stack compact"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="scanner-dialog">
+      <form method="dialog" class="stack compact">
+        <div class="panel-header">
+          <h2>Scan a code</h2>
+          <p>Use your device camera. If scanning is unavailable, enter the value manually below.</p>
+        </div>
+        <video id="scanner-video" autoplay playsinline muted></video>
+        <label>
+          Manual code entry
+          <input id="manual-scan-input" placeholder="Type or paste the barcode / QR value" />
+        </label>
+        <menu class="actions">
+          <button value="cancel" class="secondary">Cancel</button>
+          <button value="submit" id="manual-scan-submit">Use code</button>
+        </menu>
+        <p id="scanner-status" class="helper"></p>
+      </form>
+    </dialog>
+
+    <div id="toast" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
