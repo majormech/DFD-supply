@@ -80,6 +80,17 @@ label {
   gap: 6px;
   font-weight: 600;
 }
+.inline-field {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.inline-field input {
+  flex: 1;
+}
+.inline-field button {
+  flex-shrink: 0;
+}
 input, select, button, dialog {
   border-radius: 12px;
 }
@@ -174,6 +185,9 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
   .hero {
+    flex-direction: column;
+  }
+ .inline-field {
     flex-direction: column;
   }
 }
