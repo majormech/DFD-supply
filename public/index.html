@@ -42,11 +42,17 @@
             <div class="grid two">
               <label>
                 Barcode
-                <input name="barcode" placeholder="0123456789" />
+                <div class="inline-field">
+                  <input name="barcode" placeholder="0123456789" />
+                  <button type="button" id="scan-add-barcode-btn" class="secondary">Scan barcode</button>
+                </div>
               </label>
               <label>
                 QR code value
-                <input name="qrCode" placeholder="glove-case-001" />
+                <div class="inline-field">
+                  <input name="qrCode" placeholder="glove-case-001" />
+                  <button type="button" id="scan-add-qr-btn" class="secondary">Scan QR</button>
+                </div>
               </label>
             </div>
             <div class="grid two">
