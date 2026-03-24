@@ -16,8 +16,13 @@ async function parseBody(request) {
   }
 }
 
+async function getSettings(db) {
+  const row = await db.prepare('SELECT supply_officer_email, admin_emails FROM admin_settings WHERE id = 1').first();
+  return row || { supply_officer_email: '', admin_emails: '' };
+}
+
 export async function bootstrapData(db) {
-  const [stationsRes, itemsRes, txRes] = await Promise.all([
+  const [stationsRes, itemsRes, txRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
     db.prepare(`
       SELECT
@@ -27,6 +32,7 @@ export async function bootstrapData(db) {
         i.barcode,
         i.qr_code,
         i.description,
+        i.unit_cost,
         i.total_quantity,
         i.updated_at,
         COALESCE(json_group_array(
@@ -49,6 +55,7 @@ export async function bootstrapData(db) {
         t.action_type,
         t.source,
         t.note,
+        t.performed_by,
         t.created_at,
         i.name AS item_name,
         i.sku AS item_sku,
@@ -57,8 +64,9 @@ export async function bootstrapData(db) {
       JOIN items i ON i.id = t.item_id
       LEFT JOIN stations s ON s.id = t.station_id
       ORDER BY t.created_at DESC, t.id DESC
-      LIMIT 12
+      LIMIT 25
     `).all(),
+    getSettings(db),
   ]);
 
   return {
@@ -68,6 +76,7 @@ export async function bootstrapData(db) {
       station_breakdown: JSON.parse(item.station_breakdown).filter(Boolean),
     })),
     recentTransactions: txRes.results,
+    settings,
   };
 }
 
@@ -92,14 +101,16 @@ export async function addItem(request, env) {
   const body = await parseBody(request);
   if (!body?.name || !body?.sku) return badRequest('name and sku are required');
   const qty = Number.parseInt(body.totalQuantity ?? 0, 10);
+  const unitCost = Number.parseFloat(body.unitCost ?? 0);
   if (Number.isNaN(qty) || qty < 0) return badRequest('totalQuantity must be a positive number or 0');
+  if (Number.isNaN(unitCost) || unitCost < 0) return badRequest('unitCost must be a positive number or 0');
 
   try {
     const inserted = await env.DB.prepare(`
-      INSERT INTO items (name, sku, barcode, qr_code, description, total_quantity, updated_at)
-      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, CURRENT_TIMESTAMP)
+      INSERT INTO items (name, sku, barcode, qr_code, description, unit_cost, total_quantity, updated_at)
+      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, CURRENT_TIMESTAMP)
       RETURNING *
-    `).bind(body.name.trim(), body.sku.trim(), body.barcode ?? '', body.qrCode ?? '', body.description ?? '', qty).first();
+    `).bind(body.name.trim(), body.sku.trim(), body.barcode ?? '', body.qrCode ?? '', body.description ?? '', unitCost, qty).first();
 
     return json({ item: inserted }, { status: 201 });
   } catch (error) {
@@ -117,8 +128,10 @@ export async function adjustInventory(request, env) {
 
   const stationId = body.stationId ? Number.parseInt(body.stationId, 10) : null;
   const mode = body.mode;
+  const performedBy = (body.performedBy || '').trim();
   if (!['restock', 'issue'].includes(mode)) return badRequest('mode must be restock or issue');
   if (mode === 'issue' && !stationId) return badRequest('stationId is required when issuing inventory');
+  if (!performedBy) return badRequest('performedBy is required');
 
   const delta = mode === 'restock' ? qty : -qty;
 
@@ -145,15 +158,16 @@ export async function adjustInventory(request, env) {
           `).bind(Math.abs(delta), stationId, item.id)]
         : []),
       env.DB.prepare(`
-        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note)
-        VALUES (?, ?, ?, ?, ?, NULLIF(?, ''))
+        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by)
+        VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?)
       `).bind(
         item.id,
         stationId,
         delta,
         mode,
         body.source === 'scan' ? 'scan' : 'manual',
-        body.note ?? ''
+        body.note ?? '',
+        performedBy
       ),
     ]);
   } catch (error) {
@@ -171,6 +185,146 @@ export async function lookupScan(request, env) {
   const item = await resolveItem(env.DB, { code });
   if (!item) return badRequest('No item matches that code.', 404);
   return json({ item });
+}
+
+export async function getAnalytics(request, env) {
+  const url = new URL(request.url);
+  const days = Math.min(Math.max(Number.parseInt(url.searchParams.get('days') || '30', 10), 7), 365);
+
+  const [byItem, byStation, trend] = await Promise.all([
+    env.DB.prepare(`
+      SELECT i.name, i.sku,
+        SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
+        ROUND(SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) * i.unit_cost ELSE 0 END), 2) AS used_cost
+      FROM items i
+      LEFT JOIN stock_transactions t ON t.item_id = i.id
+      WHERE t.created_at >= datetime('now', ?)
+      GROUP BY i.id
+      ORDER BY used_qty DESC, i.name COLLATE NOCASE ASC
+    `).bind(`-${days} days`).all(),
+    env.DB.prepare(`
+      SELECT COALESCE(s.name, 'Unassigned') AS station_name,
+        SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
+        ROUND(SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) * i.unit_cost ELSE 0 END), 2) AS used_cost
+      FROM stock_transactions t
+      JOIN items i ON i.id = t.item_id
+      LEFT JOIN stations s ON s.id = t.station_id
+      WHERE t.created_at >= datetime('now', ?)
+      GROUP BY s.id
+      ORDER BY used_cost DESC
+    `).bind(`-${days} days`).all(),
+    env.DB.prepare(`
+      SELECT date(t.created_at) AS day,
+        SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
+        ROUND(SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) * i.unit_cost ELSE 0 END), 2) AS used_cost
+      FROM stock_transactions t
+      JOIN items i ON i.id = t.item_id
+      WHERE t.created_at >= datetime('now', ?)
+      GROUP BY date(t.created_at)
+      ORDER BY day ASC
+    `).bind(`-${days} days`).all(),
+  ]);
+
+  return json({ byItem: byItem.results, byStation: byStation.results, trend: trend.results, days });
+}
+
+function isAuthorizedAdmin(request, env) {
+  const configuredKey = env.ADMIN_KEY;
+  if (!configuredKey) return true;
+  return request.headers.get('x-admin-key') === configuredKey;
+}
+
+export async function getAdminSettings(request, env) {
+  if (!isAuthorizedAdmin(request, env)) return badRequest('Unauthorized', 401);
+  return json(await getSettings(env.DB));
+}
+
+export async function updateAdminSettings(request, env) {
+  if (!isAuthorizedAdmin(request, env)) return badRequest('Unauthorized', 401);
+  const body = await parseBody(request);
+  const supplyOfficerEmail = (body?.supplyOfficerEmail || '').trim();
+  const adminEmails = (body?.adminEmails || '').trim();
+
+  await env.DB.prepare(`
+    INSERT INTO admin_settings (id, supply_officer_email, admin_emails, updated_at)
+    VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET
+      supply_officer_email = excluded.supply_officer_email,
+      admin_emails = excluded.admin_emails,
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(supplyOfficerEmail, adminEmails).run();
+
+  return json({ ok: true });
+}
+
+async function sendRequestEmail(env, to, subject, text) {
+  if (!to || !env.RESEND_API_KEY || !env.SUPPLY_FROM_EMAIL) return { sent: false };
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: env.SUPPLY_FROM_EMAIL,
+      to: [to],
+      subject,
+      text,
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Email provider rejected request: ${message}`);
+  }
+
+  return { sent: true };
+}
+
+export async function createStationRequest(request, env) {
+  const body = await parseBody(request);
+  const stationCode = (body?.stationCode || '').trim();
+  const requesterName = (body?.requesterName || '').trim();
+  const otherItems = (body?.otherItems || '').trim();
+  const requestedItems = Array.isArray(body?.items)
+    ? body.items
+        .map((entry) => ({ name: (entry.name || '').trim(), quantity: Number.parseInt(entry.quantity || 0, 10) }))
+        .filter((entry) => entry.name && entry.quantity > 0)
+    : [];
+
+  if (!stationCode) return badRequest('stationCode is required');
+  if (!requesterName) return badRequest('requesterName is required');
+  if (!requestedItems.length && !otherItems) return badRequest('Provide at least one inventory request or other item notes.');
+
+  const station = await env.DB.prepare('SELECT id, name, code FROM stations WHERE code = ?').bind(stationCode).first();
+  if (!station) return badRequest('Invalid station', 404);
+
+  await env.DB.prepare(`
+    INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items)
+    VALUES (?, ?, ?, NULLIF(?, ''))
+  `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItems).run();
+
+  const settings = await getSettings(env.DB);
+  const lines = requestedItems.map((item) => `- ${item.name}: ${item.quantity}`).join('\n');
+  const message = [
+    `Station request submitted by ${requesterName}.`,
+    `Station: ${station.name} (${station.code})`,
+    '',
+    'Requested inventory:',
+    lines || '- None listed',
+    '',
+    `Other items: ${otherItems || 'None'}`,
+    `Submitted at: ${new Date().toISOString()}`,
+  ].join('\n');
+
+  try {
+    await sendRequestEmail(env, settings.supply_officer_email, `Supply request: ${station.name}`, message);
+  } catch (error) {
+    return badRequest(error.message, 502);
+  }
+
+  return json({ ok: true, emailed: Boolean(settings.supply_officer_email && env.RESEND_API_KEY && env.SUPPLY_FROM_EMAIL) }, { status: 201 });
 }
 
 export { badRequest, json };
