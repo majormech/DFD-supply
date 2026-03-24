@@ -422,7 +422,7 @@ function renderIssuePage() {
             <strong>${escapeHtml(station.name)}</strong> · ${hasOpenRequest ? `${requests.length} active request${requests.length === 1 ? '' : 's'}` : 'No active requests'}
           </button>
           <div class="issue-station-listing__actions">
-            <button type="button" data-action="open-issue-items" data-station-id="${station.id}" ${hasOpenRequest ? '' : 'disabled'}>Issue items</button>
+                   <button type="button" data-action="open-issue-items" data-station-id="${station.id}">Issue items</button>
           </div>
         </div>
         <div class="issue-station-listing__panel hidden">
@@ -591,11 +591,22 @@ function buildRequestedItemsForStation(stationId) {
 
 function openIssueItemsModal(stationId) {
   const station = state.stations.find((entry) => Number(entry.id) === Number(stationId));
-  const requestedItems = buildRequestedItemsForStation(stationId);
-  if (!station || !requestedItems.length) {
-    showToast('No active requested items for this station.', true);
+  if (!station) {
+    showToast('Unable to find station for issuing items.', true);
     return;
   }
+  
+ const requestedItems = buildRequestedItemsForStation(stationId);
+  const issueEntries = requestedItems
+    .filter((item) => item.itemId && item.available > 0)
+    .map((item) => ({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      available: item.available,
+      issueQuantity: Math.min(Math.max(1, item.requestedQuantity), item.available),
+      code: '',
+      source: 'request',
+    }));
 
   const overlay = document.createElement('div');
   overlay.className = 'scanner-modal';
@@ -608,26 +619,27 @@ function openIssueItemsModal(stationId) {
       <label>Name or employee number
         <input type="text" name="issuedBy" value="${escapeHtml(rememberedIdentity)}" required />
       </label>
-      <div class="stack compact">
-        ${requestedItems.map((item, index) => `
-          <div class="issue-row" data-index="${index}">
-            <input type="checkbox" data-field="selected" ${item.itemId ? '' : 'disabled'} />
-            <div>
-              <strong>${escapeHtml(item.itemName)}</strong> · Requested: ${item.requestedQuantity}
-              ${item.itemId ? '' : '<div class="helper">Not found in inventory list.</div>'}
-            </div>
-            <input type="number" min="1" max="${Math.max(0, item.available)}" value="${item.requestedQuantity}" data-field="issueQty" class="hidden" />
-            <span class="helper">Available: ${item.available}</span>
-          </div>
-        `).join('')}
+        <p class="helper">If no request is active, scan an item QR code or barcode to start issuing items.</p>
+      <div data-role="issueItems" class="stack compact"></div>
+      <div class="inline-actions">
+        <button type="button" data-action="scan-item" class="secondary">Scan item QR or barcode</button>
+        <button type="button" data-action="add-another-item">Add another item</button>
       </div>
       <label class="checkbox-label">
         <input type="checkbox" name="confirmedPulled" />
-        I pulled all selected items and set them out for issue.
+         I acknowledge these items are being pulled from inventory and the quantities are correct.
       </label>
+      <div data-role="issueSummary" class="restock-followup hidden"></div>
+      <div data-role="cancelConfirm" class="hidden restock-followup stack compact">
+        <p>Are you sure you want to cancel issuing these items?</p>
+        <div class="inline-actions">
+          <button type="button" data-action="confirm-cancel" class="danger">Yes cancel issue items</button>
+          <button type="button" data-action="go-back" class="request-success">Go back to continue issuing items</button>
+        </div>
+      </div>
       <div class="scanner-modal__actions">
-        <button type="button" class="ghost" data-action="cancel">Cancel</button>
-        <button type="button" data-action="submit" class="hidden">Submit</button>
+        <button type="button" class="danger" data-action="cancel">Cancel</button>
+        <button type="button" data-action="submit" class="request-success" disabled>Submit</button>
       </div>
     </div>
   `;
@@ -638,23 +650,127 @@ function openIssueItemsModal(stationId) {
   const submitButton = overlay.querySelector('[data-action="submit"]');
   const confirmPulled = overlay.querySelector('input[name="confirmedPulled"]');
   const identityInput = overlay.querySelector('input[name="issuedBy"]');
+const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
+  const cancelConfirm = overlay.querySelector('[data-role="cancelConfirm"]');
+  const issueSummary = overlay.querySelector('[data-role="issueSummary"]');
+  const scanItemButton = overlay.querySelector('[data-action="scan-item"]');
+  const addAnotherButton = overlay.querySelector('[data-action="add-another-item"]');
 
-  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  const renderIssueItems = () => {
+    issueItemsEl.innerHTML = issueEntries.length
+      ? issueEntries.map((item, index) => `
+        <div class="issue-row issue-row--entry" data-index="${index}">
+          <div>
+            <strong>${escapeHtml(item.itemName)}</strong>
+            ${item.source === 'request' ? '<div class="helper">Loaded from request queue</div>' : ''}
+            ${item.code ? `<div class="helper">Scanned code: ${escapeHtml(item.code)}</div>` : ''}
+          </div>
+          <label>Quantity to issue
+            <input type="number" min="1" max="${Math.max(1, item.available)}" value="${item.issueQuantity}" data-field="issueQty" />
+          </label>
+          <div class="helper">In stock: ${item.available}</div>
+        </div>
+      `).join('')
+      : '<p class="helper">No items selected yet. Scan an item QR code or barcode to begin issuing.</p>';
+  };
+
+  const refreshSubmitState = () => {
+    const canSubmit = Boolean(confirmPulled.checked && issueEntries.length);
+    submitButton.disabled = !canSubmit;
+  };
+
+  const addItemByCode = async (code, mode = 'scan') => {
+    const trimmed = String(code || '').trim();
+    if (!trimmed) {
+      showToast('Item code is required.', true);
+      return;
+    }
+    const localItem = findItemByCode(trimmed);
+    let matchedItem = localItem;
+    if (!matchedItem) {
+      const data = await fetchJson(`/api/scan?code=${encodeURIComponent(trimmed)}`);
+      matchedItem = data.item;
+    }
+    if (!matchedItem) {
+      showToast('No matching inventory item for that code.', true);
+      return;
+    }
+    const available = Number.parseInt(matchedItem.total_quantity || 0, 10);
+    if (available <= 0) {
+      showToast(`${matchedItem.name} is out of stock and cannot be issued.`, true);
+      return;
+    }
+    const existing = issueEntries.find((entry) => Number(entry.itemId) === Number(matchedItem.id));
+    if (existing) {
+      existing.code = trimmed;
+      existing.source = existing.source || mode;
+      showToast(`${matchedItem.name} is already in the issue list.`);
+    } else {
+      issueEntries.push({
+        itemId: matchedItem.id,
+        itemName: matchedItem.name,
+        available,
+        issueQuantity: 1,
+        code: trimmed,
+        source: mode,
+      });
+      showToast(`${matchedItem.name} added to issue list.`);
+    }
+    renderIssueItems();
+    refreshSubmitState();
+  };
+
+  const promptToAddItem = async (allowCamera = true) => {
+    try {
+      let code = '';
+      if (allowCamera) {
+        code = await scanCodeWithCamera('Scan item QR code or barcode');
+      } else {
+        code = window.prompt('Enter item QR code or barcode') || '';
+      }
+      await addItemByCode(code, allowCamera ? 'scan' : 'manual');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  };
+
+  renderIssueItems();
+  refreshSubmitState();
+  if (!issueEntries.length) {
+    showToast('No active request found. Scan an item to start issuing inventory.');
+  }
+
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', () => {
+    cancelConfirm.classList.remove('hidden');
+  });
+  overlay.querySelector('[data-action="go-back"]')?.addEventListener('click', () => {
+    cancelConfirm.classList.add('hidden');
+  });
+  overlay.querySelector('[data-action="confirm-cancel"]')?.addEventListener('click', close);
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
   });
 
-  overlay.querySelectorAll('[data-field="selected"]').forEach((checkbox) => {
-    checkbox.addEventListener('change', () => {
-      const row = checkbox.closest('.issue-row');
-      const qtyInput = row?.querySelector('[data-field="issueQty"]');
-      if (!qtyInput) return;
-      qtyInput.classList.toggle('hidden', !checkbox.checked);
-    });
+scanItemButton?.addEventListener('click', () => {
+    promptToAddItem(true);
+  });
+  addAnotherButton?.addEventListener('click', () => {
+    promptToAddItem(true);
+  });
+
+  issueItemsEl.addEventListener('input', (event) => {
+    const qtyInput = event.target.closest('[data-field="issueQty"]');
+    if (!qtyInput) return;
+    const row = qtyInput.closest('.issue-row');
+    const index = Number.parseInt(row?.dataset.index || '-1', 10);
+    const entry = issueEntries[index];
+    if (!entry) return;
+    const qty = Number.parseInt(qtyInput.value || '0', 10);
+    entry.issueQuantity = Number.isInteger(qty) ? qty : 0;
   });
 
   confirmPulled?.addEventListener('change', () => {
-    submitButton?.classList.toggle('hidden', !confirmPulled.checked);
+    refreshSubmitState();
   });
 
   submitButton?.addEventListener('click', async () => {
@@ -664,30 +780,26 @@ function openIssueItemsModal(stationId) {
       return;
     }
 
-    const selected = [...overlay.querySelectorAll('.issue-row')].map((row, index) => {
-      const checked = row.querySelector('[data-field="selected"]')?.checked;
-      const qtyRaw = row.querySelector('[data-field="issueQty"]')?.value;
-      const qty = Number.parseInt(qtyRaw || '0', 10);
-      return checked ? { ...requestedItems[index], issueQuantity: qty } : null;
-    }).filter(Boolean);
-
-    if (!selected.length) {
-      showToast('Select at least one requested item to issue.', true);
+     if (!issueEntries.length) {
+      showToast('Add at least one item before submitting.', true);
       return;
     }
 
-    const overLimit = selected.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available);
+    const overLimit = issueEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available);
     if (overLimit) {
       showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${overLimit.available}.`, true);
       return;
     }
 
-    const summary = selected.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`).join('\n');
+    const summaryLines = issueEntries.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`);
+    issueSummary.classList.remove('hidden');
+    issueSummary.innerHTML = `<strong>Issue summary</strong><ul>${summaryLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
+    const summary = summaryLines.join('\n');
     const shouldSubmit = window.confirm(`Issue summary for ${station.name}:\n\n${summary}\n\nSubmit and save these changes?`);
     if (!shouldSubmit) return;
 
     try {
-    for (const item of selected) {
+     for (const item of issueEntries) {
         if (!item.itemId) continue;
         await fetchJson('/api/inventory/adjust', {
           method: 'POST',
@@ -703,7 +815,7 @@ function openIssueItemsModal(stationId) {
           }),
         });
       }
-await fetchJson('/api/requests/complete', {
+      await fetchJson('/api/requests/complete', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
