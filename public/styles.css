@@ -75,6 +75,11 @@ button.danger {
   color: #fff;
 }
 
+button.success {
+  background: var(--success);
+  color: #fff;
+}
+
 .scan-request-tools {
   border: 1px dashed var(--border);
   border-radius: 12px;
@@ -138,6 +143,22 @@ button.danger {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.modify-summary {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.modify-summary h4 {
+  margin: 0 0 8px;
+}
+
+.modify-summary ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 @media (max-width: 920px) {
