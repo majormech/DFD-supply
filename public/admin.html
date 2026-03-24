@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DFD Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="admin">
+    <div class="shell slim">
+      <section class="panel stack wide">
+        <h1>Admin Settings</h1>
+        <p class="subtitle">Configure supply officer email and admin email list.</p>
+        <label>Admin key (if configured in worker)
+          <input id="admin-key" placeholder="Enter admin key" />
+        </label>
+        <form id="admin-settings-form" class="stack compact">
+          <label>Supply officer email<input name="supplyOfficerEmail" type="email" /></label>
+          <label>Admin emails (comma separated)<input name="adminEmails" /></label>
+          <button type="submit">Save settings</button>
+        </form>
+      </section>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
