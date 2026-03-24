@@ -70,6 +70,11 @@ button.ghost {
   border: 1px solid var(--border);
 }
 
+button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
 .scan-request-tools {
   border: 1px dashed var(--border);
   border-radius: 12px;
