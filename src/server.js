@@ -21,6 +21,15 @@ async function getSettings(db) {
   return row || { supply_officer_email: '', admin_emails: '' };
 }
 
+function parseBarcodes(body) {
+  const candidateValues = [body?.barcodes ?? '', body?.barcode ?? ''];
+  const splitValues = candidateValues
+    .flatMap((value) => String(value || '').split(/[\n,]/g))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set(splitValues)];
+}
+
 export async function bootstrapData(db) {
   const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
@@ -35,17 +44,23 @@ export async function bootstrapData(db) {
         i.unit_cost,
         i.total_quantity,
         i.updated_at,
-        COALESCE(json_group_array(
-          CASE WHEN s.id IS NOT NULL THEN json_object(
+        COALESCE((
+          SELECT json_group_array(json_object(
             'stationId', s.id,
             'stationName', s.name,
             'quantity', COALESCE(si.quantity, 0)
-          ) END
-        ), '[]') AS station_breakdown
+            ))
+          FROM station_inventory si
+          JOIN stations s ON s.id = si.station_id
+          WHERE si.item_id = i.id
+        ), '[]') AS station_breakdown,
+        COALESCE((
+          SELECT json_group_array(ib.barcode)
+          FROM item_barcodes ib
+          WHERE ib.item_id = i.id
+          ORDER BY ib.id
+        ), '[]') AS barcodes_json
       FROM items i
-      LEFT JOIN station_inventory si ON si.item_id = i.id
-      LEFT JOIN stations s ON s.id = si.station_id
-      GROUP BY i.id
       ORDER BY i.name COLLATE NOCASE ASC
     `).all(),
     db.prepare(`
@@ -93,6 +108,7 @@ export async function bootstrapData(db) {
     items: itemsRes.results.map((item) => ({
       ...item,
       station_breakdown: JSON.parse(item.station_breakdown).filter(Boolean),
+         barcodes: JSON.parse(item.barcodes_json || '[]').filter(Boolean),
     })),
     recentTransactions: txRes.results,
     stationRequests,
@@ -106,7 +122,13 @@ async function resolveItem(db, { itemId, code }) {
     return found || null;
   }
   if (!code) return null;
-  return db.prepare('SELECT * FROM items WHERE barcode = ? OR qr_code = ? OR sku = ?').bind(code, code, code).first();
+  return db.prepare(`
+    SELECT *
+    FROM items
+    WHERE barcode = ? OR qr_code = ? OR sku = ?
+      OR id IN (SELECT item_id FROM item_barcodes WHERE barcode = ?)
+    LIMIT 1
+  `).bind(code, code, code, code).first();
 }
 
 async function ensureStationRow(db, stationId, itemId) {
@@ -120,6 +142,8 @@ async function ensureStationRow(db, stationId, itemId) {
 export async function addItem(request, env) {
   const body = await parseBody(request);
   if (!body?.name || !body?.sku) return badRequest('name and sku are required');
+  const barcodes = parseBarcodes(body);
+  const primaryBarcode = barcodes[0] || '';
   const qty = Number.parseInt(body.totalQuantity ?? 0, 10);
   const unitCost = Number.parseFloat(body.unitCost ?? 0);
   if (Number.isNaN(qty) || qty < 0) return badRequest('totalQuantity must be a positive number or 0');
@@ -130,11 +154,18 @@ export async function addItem(request, env) {
       INSERT INTO items (name, sku, barcode, qr_code, description, unit_cost, total_quantity, updated_at)
       VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, CURRENT_TIMESTAMP)
       RETURNING *
-    `).bind(body.name.trim(), body.sku.trim(), body.barcode ?? '', body.qrCode ?? '', body.description ?? '', unitCost, qty).first();
+    `).bind(body.name.trim(), body.sku.trim(), primaryBarcode, body.qrCode ?? '', body.description ?? '', unitCost, qty).first();
 
-    return json({ item: inserted }, { status: 201 });
+    if (barcodes.length) {
+      await env.DB.batch(barcodes.map((barcode) => env.DB.prepare(`
+        INSERT INTO item_barcodes (item_id, barcode)
+        VALUES (?, ?)
+      `).bind(inserted.id, barcode)));
+    }
+
+    return json({ item: { ...inserted, barcodes } }, { status: 201 });
   } catch (error) {
-    return badRequest(error.message.includes('UNIQUE') ? 'Item SKU / barcode / QR code must be unique.' : error.message);
+    return badRequest(error.message.includes('UNIQUE') ? 'Item SKU, each barcode, and QR code must be unique.' : error.message);
   }
 }
 
