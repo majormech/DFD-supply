@@ -162,6 +162,26 @@ function attachScannerButton(input, button, successMessage, append = false) {
   });
 }
 
+function setupInventoryCodeScanner(form, config) {
+  if (!form) return;
+  const codeInput = form.querySelector('input[name="code"]');
+  if (!codeInput) return;
+
+  const barcodeButton = form.querySelector(config.barcodeButtonSelector);
+  const qrButton = form.querySelector(config.qrButtonSelector);
+  if (!barcodeButton || !qrButton) return;
+
+  if (barcodeButton.dataset.scanReady !== 'true') {
+    attachScannerButton(codeInput, barcodeButton, config.barcodeSuccess);
+    barcodeButton.dataset.scanReady = 'true';
+  }
+
+  if (qrButton.dataset.scanReady !== 'true') {
+    attachScannerButton(codeInput, qrButton, config.qrSuccess);
+    qrButton.dataset.scanReady = 'true';
+  }
+}
+
 function setupAddItemScanFields(form) {
   if (!form) return;
   const fields = [
@@ -228,9 +248,16 @@ function renderMain() {
 
 function renderInventoryPage() {
   document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
-  document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
   document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+ renderRecentTransactions();
+}
 
+function renderRestockPage() {
+  document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
+  renderRecentTransactions();
+}
+
+function renderRecentTransactions() {
   const txList = document.querySelector('#transaction-list');
   txList.innerHTML = state.recentTransactions.length
     ? state.recentTransactions.map((txn) => `
@@ -247,9 +274,14 @@ function renderInventoryPage() {
 async function wireInventoryForms() {
   const addForm = document.querySelector('#add-item-form');
   const issueForm = document.querySelector('#issue-form');
-  const restockForm = document.querySelector('#restock-form');
 
   setupAddItemScanFields(addForm);
+   setupInventoryCodeScanner(issueForm, {
+    barcodeButtonSelector: '#issue-scan-barcode',
+    qrButtonSelector: '#issue-scan-qr',
+    barcodeSuccess: 'Issue code captured from barcode.',
+    qrSuccess: 'Issue code captured from QR code.',
+  });
 
   addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -268,29 +300,59 @@ async function wireInventoryForms() {
     }
   });
 
-  for (const [form, mode] of [[issueForm, 'issue'], [restockForm, 'restock']]) {
-    form?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const payload = formToPayload(form);
-      payload.mode = mode;
-      payload.source = payload.code ? 'scan' : 'manual';
-      if (!payload.itemId) delete payload.itemId;
-      if (!payload.code) delete payload.code;
-      try {
-        await fetchJson('/api/inventory/adjust', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        form.reset();
-        await loadBootstrap();
-        renderInventoryPage();
-        showToast(mode === 'issue' ? 'Inventory issued.' : 'Inventory restocked.');
-      } catch (error) {
-        showToast(error.message, true);
-      }
-    });
-  }
+  issueForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = formToPayload(issueForm);
+    payload.mode = 'issue';
+    payload.source = payload.code ? 'scan' : 'manual';
+    if (!payload.itemId) delete payload.itemId;
+    if (!payload.code) delete payload.code;
+    try {
+      await fetchJson('/api/inventory/adjust', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      issueForm.reset();
+      await loadBootstrap();
+      renderInventoryPage();
+      showToast('Inventory issued.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+
+async function wireRestockForm() {
+  const restockForm = document.querySelector('#restock-form');
+  setupInventoryCodeScanner(restockForm, {
+    barcodeButtonSelector: '#restock-scan-barcode',
+    qrButtonSelector: '#restock-scan-qr',
+    barcodeSuccess: 'Restock code captured from barcode.',
+    qrSuccess: 'Restock code captured from QR code.',
+  });
+
+  restockForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = formToPayload(restockForm);
+    payload.mode = 'restock';
+    payload.source = payload.code ? 'scan' : 'manual';
+    if (!payload.itemId) delete payload.itemId;
+    if (!payload.code) delete payload.code;
+    try {
+      await fetchJson('/api/inventory/adjust', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      restockForm.reset();
+      await loadBootstrap();
+      renderRestockPage();
+      showToast('Inventory restocked.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
 }
 
 function renderAnalytics(data) {
@@ -483,6 +545,10 @@ async function wireAdminPage() {
     if (page === 'inventory') {
       renderInventoryPage();
       await wireInventoryForms();
+    }
+    if (page === 'restock') {
+      renderRestockPage();
+      await wireRestockForm();
     }
     if (page === 'search') await wireSearchPage();
     if (page === 'request') await wireRequestPage();
