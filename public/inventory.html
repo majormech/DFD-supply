@@ -26,14 +26,33 @@
         <section class="panel stack">
           <h2>Add new inventory item</h2>
           <form id="add-item-form" class="stack compact">
-            <label>Item name<input name="name" required /></label>
-            <label>SKU<input name="sku" required /></label>
-             <label>Barcodes (comma separated)<input name="barcodes" placeholder="Scan or type multiple barcodes, separated by commas" /></label>
-            <label>QR code<input name="qrCode" /></label>
-            <label>Description<input name="description" /></label>
-            <label>Opening quantity<input name="totalQuantity" type="number" min="0" value="0" /></label>
-            <label>Unit cost ($)<input name="unitCost" type="number" min="0" step="0.01" value="0" /></label>
-            <button type="submit">Add item</button>
+            <label>Scan new item QR code (required)<input name="qrCode" id="add-item-qr" required placeholder="Scan unique item type QR code" /></label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="add-item-skip-barcode" checked />
+              Skip barcode scan (checked by default)
+            </label>
+            <label>Scan item barcode (optional, can add more later)<input name="barcodes" id="add-item-barcodes" placeholder="Scan barcode(s), separated by commas" /></label>
+            <label>Item name<input name="name" id="add-item-name" required /></label>
+            <label>Quantity being restocked<input name="totalQuantity" type="number" min="1" value="1" required /></label>
+            <label>Low stock / reorder level<input name="lowStockLevel" type="number" min="0" value="0" required /></label>
+            <label>Cost per unit (optional)<input name="unitCost" id="add-item-unit-cost" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label>Date and time<input name="performedAt" id="add-item-datetime" type="datetime-local" required /></label>
+            <label>Completed by (name or employee number)<input name="performedBy" id="add-item-performed-by" required placeholder="Name or employee #" /></label>
+            <label>Notes (optional)<input name="note" /></label>
+            <label>Description (optional)<input name="description" /></label>
+            <label>SKU (optional; auto-generated if blank)<input name="sku" placeholder="Optional custom SKU" /></label>
+            <section id="add-item-review" class="restock-followup hidden">
+              <h3>Review before submit</h3>
+              <div id="add-item-review-content" class="helper"></div>
+              <label class="checkbox-label">
+                <input type="checkbox" id="add-item-review-confirm" />
+                I reviewed this summary and want to submit it.
+              </label>
+            </section>
+            <div class="inline-actions">
+              <button type="button" id="add-item-preview" class="secondary">Show summary</button>
+              <button type="submit" id="add-item-submit" disabled>Add item</button>
+            </div>
           </form>
         </section>
 
