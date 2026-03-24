@@ -11,18 +11,10 @@
       <section class="panel stack wide">
         <h1>ST05 Inventory Request</h1>
         <p class="subtitle">Submit requested inventory for this station.</p>
-        <form id="request-form" class="stack compact">
-          <input type="hidden" name="stationCode" value="ST05" />
-          <label>Requested by<input name="requesterName" required placeholder="Name" /></label>
-          <label>Inventory item<select name="item1" class="request-item"></select></label>
-          <label>Quantity<input name="qty1" type="number" min="0" value="0" /></label>
-          <label>Inventory item<select name="item2" class="request-item"></select></label>
-          <label>Quantity<input name="qty2" type="number" min="0" value="0" /></label>
-          <label>Inventory item<select name="item3" class="request-item"></select></label>
-          <label>Quantity<input name="qty3" type="number" min="0" value="0" /></label>
-          <label>Other items / notes<input name="otherItems" placeholder="Type anything not listed" /></label>
-          <button type="submit">Submit request</button>
-        </form>
+        <div class="stack compact">
+          <button type="button" id="open-request-modal">Request item</button>
+          <div id="recent-requests" class="request-history-list"></div>
+        </div>
       </section>
     </div>
     <div id="toast"></div>
