@@ -23,21 +23,10 @@
       </header>
 
       <main class="layout">
-        <section class="panel stack">
-          <h2>Issue stock to a station</h2>
-          <form id="issue-form" class="stack compact">
-            <label>Station<select name="stationId" id="issue-station" required></select></label>
-            <label>Item<select name="itemId" id="issue-item"></select></label>
-            <label>Or scan/code<input name="code" /></label>
-            <div class="inline-actions">
-              <button type="button" id="issue-scan-barcode" class="secondary">Scan barcode</button>
-              <button type="button" id="issue-scan-qr" class="secondary">Scan QR code</button>
-            </div>
-            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
-            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
-            <label>Note<input name="note" /></label>
-            <button type="submit">Issue inventory</button>
-          </form>
+        <section class="panel stack wide">
+          <h2>Issue station requests</h2>
+          <p class="subtitle">Stations with active requests are red. Stations with no active requests are green.</p>
+          <div id="issue-station-list" class="stack compact"></div>
         </section>
 
         <section class="panel stack wide">
