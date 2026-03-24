@@ -1,82 +1,125 @@
 const page = document.body.dataset.page;
-
-const state = {
-  items: [],
-  stations: [],
-  recentTransactions: [],
-};
-
-const toast = document.querySelector('#toast');
-
-function showToast(message, isError = false) {
-  if (!toast) return;
-  toast.textContent = message;
-  toast.style.background = isError ? '#c13737' : '#142033';
-  toast.classList.add('show');
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3000);
-}
-
-async function fetchJson(url, options) {
-  const response = await fetch(url, options);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Request failed');
-  return data;
-}
-
-function currency(value) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
-}
-
-function formToPayload(form) {
-  return Object.fromEntries(new FormData(form).entries());
-}
-
-function itemOptions(items) {
-  return ['<option value="">Select an item</option>', ...items.map((item) => `<option value="${item.id}">${item.name} (${item.sku})</option>`)].join('');
-}
-
-async function loadBootstrap() {
-  const data = await fetchJson('/api/bootstrap');
-  state.items = data.items;
-  state.stations = data.stations;
-  state.recentTransactions = data.recentTransactions;
-  return data;
-}
-
-function renderMain() {
-  document.querySelector('#total-item-count').textContent = `${state.items.length} items`;
-  document.querySelector('#total-stock-count').textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
-  const table = document.querySelector('#inventory-table');
-  table.innerHTML = state.items.length
-    ? state.items.map((item) => `<tr><td>${item.name}</td><td>${item.sku}</td><td>${item.total_quantity}</td><td>${currency(item.unit_cost)}</td></tr>`).join('')
-    : '<tr><td colspan="4">No inventory items yet.</td></tr>';
-}
-
-function renderInventoryPage() {
-  document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
-  document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
-  document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
-
-  const txList = document.querySelector('#transaction-list');
-  txList.innerHTML = state.recentTransactions.length
-    ? state.recentTransactions.map((txn) => `
-      <article class="txn">
-        <strong>${txn.item_name} (${txn.item_sku})</strong>
-        <div>${txn.quantity_delta >= 0 ? '+' : ''}${txn.quantity_delta} · ${txn.action_type} · ${txn.station_name || 'Main inventory'}</div>
-        <div class="helper">${new Date(txn.created_at).toLocaleString()} · Changed by: ${txn.performed_by || 'Unknown'} · Source: ${txn.source}</div>
-        ${txn.note ? `<div>${txn.note}</div>` : ''}
-      </article>
-    `).join('')
-    : '<p class="helper">No changes yet.</p>';
-}
-
-async function wireInventoryForms() {
-  const addForm = document.querySelector('#add-item-form');
-  const issueForm = document.querySelector('#issue-form');
-  const restockForm = document.querySelector('#restock-form');
-
-  addForm?.addEventListener('submit', async (event) => {
+ 
+ const state = {
+   items: [],
+   stations: [],
++  stationRequests: [],
+   recentTransactions: [],
+ };
+ 
+ const toast = document.querySelector('#toast');
+ 
+ function showToast(message, isError = false) {
+   if (!toast) return;
+   toast.textContent = message;
+   toast.style.background = isError ? '#c13737' : '#142033';
+   toast.classList.add('show');
+   window.clearTimeout(showToast.timer);
+   showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3000);
+ }
+ 
+ async function fetchJson(url, options) {
+   const response = await fetch(url, options);
+   const data = await response.json().catch(() => ({}));
+   if (!response.ok) throw new Error(data.error || 'Request failed');
+   return data;
+ }
+ 
+ function currency(value) {
+   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
+ }
+ 
+ function formToPayload(form) {
+   return Object.fromEntries(new FormData(form).entries());
+ }
+ 
+ function itemOptions(items) {
+   return ['<option value="">Select an item</option>', ...items.map((item) => `<option value="${item.id}">${item.name} (${item.sku})</option>`)].join('');
+ }
+ 
+ async function loadBootstrap() {
+   const data = await fetchJson('/api/bootstrap');
+   state.items = data.items;
+   state.stations = data.stations;
++  state.stationRequests = data.stationRequests || [];
+   state.recentTransactions = data.recentTransactions;
+   return data;
+ }
+ 
++function requestDetails(request) {
++  const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
++  const requestedSummary = requestedItems.length
++    ? `<ul>${requestedItems.map((item) => `<li>${item.name}: <strong>${item.quantity}</strong></li>`).join('')}</ul>`
++    : '<p class="helper">No inventory items listed.</p>';
++
++  return `
++    ${requestedSummary}
++    ${request.other_items ? `<p><strong>Other items:</strong> ${request.other_items}</p>` : ''}
++    <p class="helper">Requested by ${request.requester_name} · ${new Date(request.created_at).toLocaleString()}</p>
++  `;
++}
++
+ function renderMain() {
+   document.querySelector('#total-item-count').textContent = `${state.items.length} items`;
+   document.querySelector('#total-stock-count').textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
+   const table = document.querySelector('#inventory-table');
+   table.innerHTML = state.items.length
+     ? state.items.map((item) => `<tr><td>${item.name}</td><td>${item.sku}</td><td>${item.total_quantity}</td><td>${currency(item.unit_cost)}</td></tr>`).join('')
+     : '<tr><td colspan="4">No inventory items yet.</td></tr>';
++
++  const stationList = document.querySelector('#station-status-list');
++  const requestsByStation = state.stationRequests.reduce((acc, request) => {
++    if (!acc[request.station_id]) acc[request.station_id] = [];
++    acc[request.station_id].push(request);
++    return acc;
++  }, {});
++
++  stationList.innerHTML = state.stations.map((station) => {
++    const requests = requestsByStation[station.id] || [];
++    const hasOpenRequest = requests.length > 0;
++    return `
++      <article class="station-status ${hasOpenRequest ? 'station-status--open' : 'station-status--clear'}">
++        <div class="station-status__header">
++          <strong>${station.name}</strong>
++          <span>${hasOpenRequest ? `${requests.length} open request${requests.length === 1 ? '' : 's'}` : 'No open requests'}</span>
++        </div>
++        ${hasOpenRequest ? `
++          <details>
++            <summary>View requests</summary>
++            <div class="station-status__requests">
++              ${requests.map((request) => `<div class="station-status__request">${requestDetails(request)}</div>`).join('')}
++            </div>
++          </details>
++        ` : ''}
++      </article>
++    `;
++  }).join('');
+ }
+ 
+ function renderInventoryPage() {
+   document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
+   document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
+   document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+ 
+   const txList = document.querySelector('#transaction-list');
+   txList.innerHTML = state.recentTransactions.length
+     ? state.recentTransactions.map((txn) => `
+       <article class="txn">
+         <strong>${txn.item_name} (${txn.item_sku})</strong>
+         <div>${txn.quantity_delta >= 0 ? '+' : ''}${txn.quantity_delta} · ${txn.action_type} · ${txn.station_name || 'Main inventory'}</div>
+         <div class="helper">${new Date(txn.created_at).toLocaleString()} · Changed by: ${txn.performed_by || 'Unknown'} · Source: ${txn.source}</div>
+         ${txn.note ? `<div>${txn.note}</div>` : ''}
+       </article>
+     `).join('')
+     : '<p class="helper">No changes yet.</p>';
+ }
+ 
+ async function wireInventoryForms() {
+   const addForm = document.querySelector('#add-item-form');
+   const issueForm = document.querySelector('#issue-form');
+   const restockForm = document.querySelector('#restock-form');
+ 
+addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
       await fetchJson('/api/items', {
