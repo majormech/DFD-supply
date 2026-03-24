@@ -22,7 +22,7 @@ async function getSettings(db) {
 }
 
 export async function bootstrapData(db) {
-  const [stationsRes, itemsRes, txRes, settings] = await Promise.all([
+  const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
     db.prepare(`
       SELECT
@@ -66,8 +66,27 @@ export async function bootstrapData(db) {
       ORDER BY t.created_at DESC, t.id DESC
       LIMIT 25
     `).all(),
+     db.prepare(`
+      SELECT
+        sr.id,
+        sr.station_id,
+        sr.requester_name,
+        sr.requested_items_json,
+        sr.other_items,
+        sr.created_at,
+        s.name AS station_name,
+        s.code AS station_code
+      FROM station_requests sr
+      JOIN stations s ON s.id = sr.station_id
+      ORDER BY sr.created_at DESC, sr.id DESC
+    `).all(),
     getSettings(db),
   ]);
+
+   const stationRequests = stationRequestsRes.results.map((request) => ({
+    ...request,
+    requested_items: JSON.parse(request.requested_items_json || '[]'),
+  }));
 
   return {
     stations: stationsRes.results,
@@ -76,6 +95,7 @@ export async function bootstrapData(db) {
       station_breakdown: JSON.parse(item.station_breakdown).filter(Boolean),
     })),
     recentTransactions: txRes.results,
+    stationRequests,
     settings,
   };
 }
