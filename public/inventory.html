@@ -11,13 +11,14 @@
       <header class="hero">
         <div>
           <p class="eyebrow">DFD Supply</p>
-          <h1>Inventory Add / Restock / Issue</h1>
-          <p class="subtitle">Track changes with timestamps and who performed each update.</p>
+         <h1>Inventory Add Actions</h1>
+          <p class="subtitle">Create new inventory items with barcodes, QR codes, quantities, and costs.</p>
         </div>
         <nav class="top-nav">
           <a href="/index.html">Main Page</a>
           <a href="/search.html">Search Page</a>
           <a href="/restock.html">Restock Page</a>
+          <a href="/issue.html">Issue Page</a>
         </nav>
       </header>
 
@@ -33,23 +34,6 @@
             <label>Opening quantity<input name="totalQuantity" type="number" min="0" value="0" /></label>
             <label>Unit cost ($)<input name="unitCost" type="number" min="0" step="0.01" value="0" /></label>
             <button type="submit">Add item</button>
-          </form>
-        </section>
-
-        <section class="panel stack">
-          <h2>Issue stock to a station</h2>
-          <form id="issue-form" class="stack compact">
-            <label>Station<select name="stationId" id="issue-station" required></select></label>
-            <label>Item<select name="itemId" id="issue-item"></select></label>
-            <label>Or scan/code<input name="code" /></label>
-            <div class="inline-actions">
-              <button type="button" id="issue-scan-barcode" class="secondary">Scan barcode</button>
-              <button type="button" id="issue-scan-qr" class="secondary">Scan QR code</button>
-            </div>
-            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
-            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
-            <label>Note<input name="note" /></label>
-            <button type="submit">Issue inventory</button>
           </form>
         </section>
 
