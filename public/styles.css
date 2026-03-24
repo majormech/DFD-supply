@@ -342,3 +342,7 @@ button.request-success {
   width: 18px;
   height: 18px;
 }
+
+.issue-row--entry {
+  grid-template-columns: 1fr 180px 130px;
+}
