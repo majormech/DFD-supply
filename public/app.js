@@ -80,14 +80,14 @@ async function loadBootstrap() {
 function requestDetails(request) {
   const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
   const requestedSummary = requestedItems.length
-    ? `<ul>${requestedItems.map((item) => `<li>${item.name}: <strong>${item.quantity}</strong></li>`).join('')}</ul>`
+       ? `<ul>${requestedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}</ul>`
     : '<p class="helper">No inventory items listed.</p>';
 
   return `
     ${requestedSummary}
-    ${request.other_items ? `<p><strong>Other items:</strong> ${request.other_items}</p>` : ''}
-    <p class="helper">Requested by ${request.requester_name} · ${new Date(request.created_at).toLocaleString()}</p>
-  `;
+    ${request.other_items ? `<p><strong>Other items:</strong> ${escapeHtml(request.other_items)}</p>` : ''}
+    <p class="helper">Requested by ${escapeHtml(request.requester_name)} · ${new Date(request.created_at).toLocaleString()}</p>
+    `;
 }
 
 async function scanCodeWithCamera(title = 'Scan barcode or QR code') {
@@ -282,22 +282,31 @@ function renderMain() {
     const requests = requestsByStation[station.id] || [];
     const hasOpenRequest = requests.length > 0;
     return `
-      <article class="station-status ${hasOpenRequest ? 'station-status--open' : 'station-status--clear'}">
-        <div class="station-status__header">
-          <strong>${station.name}</strong>
-          <span>${hasOpenRequest ? `${requests.length} open request${requests.length === 1 ? '' : 's'}` : 'No open requests'}</span>
+     <article class="station-status ${hasOpenRequest ? 'station-status--open' : 'station-status--clear'}" data-station-id="${station.id}">
+        <button type="button" class="station-status__toggle" data-action="toggle-station" aria-expanded="false">
+          <div class="station-status__header">
+            <strong>${escapeHtml(station.name)}</strong>
+            <span>${hasOpenRequest ? `${requests.length} pending request${requests.length === 1 ? '' : 's'}` : 'No pending requests'}</span>
+          </div>
+        </button>
+        <div class="station-status__panel hidden">
+          ${hasOpenRequest
+            ? `<div class="station-status__requests">${requests.map((request) => `<div class="station-status__request">${requestDetails(request)}</div>`).join('')}</div>`
+            : '<p class="helper">No current pending request details for this station.</p>'}
         </div>
-        ${hasOpenRequest ? `
-          <details>
-            <summary>View requests</summary>
-            <div class="station-status__requests">
-              ${requests.map((request) => `<div class="station-status__request">${requestDetails(request)}</div>`).join('')}
-            </div>
-          </details>
-        ` : ''}
       </article>
     `;
   }).join('');
+  
+  stationList.querySelectorAll('[data-action="toggle-station"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const panel = button.parentElement?.querySelector('.station-status__panel');
+      if (!panel) return;
+      const isHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', !isHidden);
+      button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    });
+  });
 }
 
 async function openDeletePrompt(itemId, itemName) {
