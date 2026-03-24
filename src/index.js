@@ -10,6 +10,7 @@ import {
   getAnalytics,
   json,
   lookupScan,
+  updateItem,
   updateAdminSettings,
 } from './server.js';
 
@@ -27,6 +28,10 @@ export default {
 
     if (url.pathname === '/api/items' && request.method === 'POST') {
       return addItem(request, env);
+    }
+
+     if (url.pathname === '/api/items' && request.method === 'PUT') {
+      return updateItem(request, env);
     }
 
      if (url.pathname === '/api/items/delete' && request.method === 'POST') {
