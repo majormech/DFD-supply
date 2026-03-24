@@ -51,6 +51,15 @@ function currency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function formToPayload(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
@@ -236,10 +245,33 @@ function renderMain() {
   document.querySelector('#total-stock-count').textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
   const table = document.querySelector('#inventory-table');
   table.innerHTML = state.items.length
-    ? state.items.map((item) => `<tr><td>${item.name}</td><td>${item.sku}</td><td>${item.total_quantity}</td><td>${currency(item.unit_cost)}</td></tr>`).join('')
-    : '<tr><td colspan="4">No inventory items yet.</td></tr>';
+    ? state.items.map((item) => `
+      <tr>
+        <td>${item.name}</td>
+        <td>${item.sku}</td>
+        <td>${item.total_quantity}</td>
+        <td>${currency(item.unit_cost)}</td>
+        <td>
+          <button
+            type="button"
+            class="danger"
+            data-action="delete-item"
+            data-item-id="${item.id}"
+            data-item-name="${escapeHtml(item.name)}"
+          >Delete</button>
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5">No inventory items yet.</td></tr>';
+
+  table.querySelectorAll('[data-action="delete-item"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openDeletePrompt(button.dataset.itemId, button.dataset.itemName).catch((error) => showToast(error.message, true));
+    });
+  });
 
   const stationList = document.querySelector('#station-status-list');
+    if (!stationList) return;
   const requestsByStation = state.stationRequests.reduce((acc, request) => {
     if (!acc[request.station_id]) acc[request.station_id] = [];
     acc[request.station_id].push(request);
@@ -266,6 +298,75 @@ function renderMain() {
       </article>
     `;
   }).join('');
+}
+
+async function openDeletePrompt(itemId, itemName) {
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Delete Inventory Item</h3>
+      <p>You are deleting: <strong>${escapeHtml(itemName)}</strong></p>
+      <label>Your name
+        <input type="text" name="performedBy" placeholder="Enter your full name" required />
+      </label>
+      <label>Name or department employee number
+        <input type="text" name="employeeOrDepartment" placeholder="e.g. 12345 or Supply Dept" required />
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmDelete" />
+        I understand this item will be removed from active inventory.
+      </label>
+      <div class="scanner-modal__actions">
+        <button type="button" class="ghost" data-action="cancel">Cancel</button>
+        <button type="button" data-action="submit" disabled>Submit deletion</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const performedByInput = overlay.querySelector('input[name="performedBy"]');
+  const identityInput = overlay.querySelector('input[name="employeeOrDepartment"]');
+  const confirmCheckbox = overlay.querySelector('input[name="confirmDelete"]');
+  const submitButton = overlay.querySelector('[data-action="submit"]');
+
+  confirmCheckbox.addEventListener('change', () => {
+    submitButton.disabled = !confirmCheckbox.checked;
+  });
+
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  submitButton.addEventListener('click', async () => {
+    const performedBy = performedByInput.value.trim();
+    const employeeOrDepartment = identityInput.value.trim();
+    if (!performedBy || !employeeOrDepartment) {
+      showToast('Enter your name and employee number/department.', true);
+      return;
+    }
+
+    try {
+      await fetchJson('/api/items/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemId,
+          performedBy,
+          employeeOrDepartment,
+          confirmed: confirmCheckbox.checked,
+        }),
+      });
+      close();
+      await loadBootstrap();
+      renderMain();
+      showTimedPopup('Item has been deleted/removed from the inventory system.', 5000);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
 }
 
 function renderInventoryPage() {
