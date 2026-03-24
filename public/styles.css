@@ -140,3 +140,26 @@ button.ghost {
     grid-template-columns: 1fr;
   }
 }
+
+.hidden {
+  display: none;
+}
+
+.restock-item-summary,
+.restock-followup {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.checkbox-label input[type='checkbox'] {
+  width: auto;
+}
