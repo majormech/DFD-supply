@@ -4,6 +4,7 @@ import {
   badRequest,
   bootstrapData,
   createStationRequest,
+  deleteItem,
   getAdminSettings,
   getAnalytics,
   json,
@@ -27,6 +28,10 @@ export default {
       return addItem(request, env);
     }
 
+     if (url.pathname === '/api/items/delete' && request.method === 'POST') {
+      return deleteItem(request, env);
+    }
+    
     if (url.pathname === '/api/inventory/adjust' && request.method === 'POST') {
       return adjustInventory(request, env);
     }
