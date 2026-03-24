@@ -247,9 +247,13 @@ function renderMain() {
 }
 
 function renderInventoryPage() {
+  renderRecentTransactions();
+}
+
+function renderIssuePage() {
   document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
   document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
- renderRecentTransactions();
+  renderRecentTransactions();
 }
 
 function renderRestockPage() {
@@ -271,17 +275,10 @@ function renderRecentTransactions() {
     : '<p class="helper">No changes yet.</p>';
 }
 
-async function wireInventoryForms() {
+async function wireInventoryPage() {
   const addForm = document.querySelector('#add-item-form');
-  const issueForm = document.querySelector('#issue-form');
 
   setupAddItemScanFields(addForm);
-   setupInventoryCodeScanner(issueForm, {
-    barcodeButtonSelector: '#issue-scan-barcode',
-    qrButtonSelector: '#issue-scan-qr',
-    barcodeSuccess: 'Issue code captured from barcode.',
-    qrSuccess: 'Issue code captured from QR code.',
-  });
 
   addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -300,6 +297,17 @@ async function wireInventoryForms() {
     }
   });
 
+  }
+
+async function wireIssueForm() {
+  const issueForm = document.querySelector('#issue-form');
+  setupInventoryCodeScanner(issueForm, {
+    barcodeButtonSelector: '#issue-scan-barcode',
+    qrButtonSelector: '#issue-scan-qr',
+    barcodeSuccess: 'Issue code captured from barcode.',
+    qrSuccess: 'Issue code captured from QR code.',
+  });
+  
   issueForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const payload = formToPayload(issueForm);
@@ -315,7 +323,7 @@ async function wireInventoryForms() {
       });
       issueForm.reset();
       await loadBootstrap();
-      renderInventoryPage();
+      renderIssuePage();
       showToast('Inventory issued.');
     } catch (error) {
       showToast(error.message, true);
@@ -544,7 +552,11 @@ async function wireAdminPage() {
     if (page === 'main') renderMain();
     if (page === 'inventory') {
       renderInventoryPage();
-      await wireInventoryForms();
+        await wireInventoryPage();
+    }
+    if (page === 'issue') {
+      renderIssuePage();
+      await wireIssueForm();
     }
     if (page === 'restock') {
       renderRestockPage();
