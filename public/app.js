@@ -378,8 +378,39 @@ function renderInventoryPage() {
 }
 
 function renderIssuePage() {
-  document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
-  document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+  onst stationList = document.querySelector('#issue-station-list');
+  if (!stationList) return;
+  const requestsByStation = state.stationRequests.reduce((acc, request) => {
+    if (!acc[request.station_id]) acc[request.station_id] = [];
+    acc[request.station_id].push(request);
+    return acc;
+  }, {});
+
+  stationList.innerHTML = state.stations.map((station) => {
+    const requests = requestsByStation[station.id] || [];
+    const hasOpenRequest = requests.length > 0;
+    const flattenedItems = requests.flatMap((request) => Array.isArray(request.requested_items) ? request.requested_items : []);
+    const requestItems = flattenedItems.length
+      ? `<ul class="issue-request-list">${flattenedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}</ul>`
+      : '<p class="helper">No inventory items are currently requested.</p>';
+
+    return `
+      <article class="issue-station-listing ${hasOpenRequest ? 'issue-station-listing--open' : 'issue-station-listing--clear'}" data-station-id="${station.id}">
+        <div class="issue-station-listing__header">
+          <button type="button" class="issue-station-listing__toggle" data-action="toggle-station-issue" aria-expanded="false">
+            <strong>${escapeHtml(station.name)}</strong> · ${hasOpenRequest ? `${requests.length} active request${requests.length === 1 ? '' : 's'}` : 'No active requests'}
+          </button>
+          <div class="issue-station-listing__actions">
+            <button type="button" data-action="open-issue-items" data-station-id="${station.id}" ${hasOpenRequest ? '' : 'disabled'}>Issue items</button>
+          </div>
+        </div>
+        <div class="issue-station-listing__panel hidden">
+          ${requestItems}
+        </div>
+      </article>
+    `;
+  }).join('');
+  
   renderRecentTransactions();
 }
 
@@ -510,34 +541,178 @@ if (!addForm) return;
   });
 }
 
-async function wireIssueForm() {
-  const issueForm = document.querySelector('#issue-form');
-  setupInventoryCodeScanner(issueForm, {
-    barcodeButtonSelector: '#issue-scan-barcode',
-    qrButtonSelector: '#issue-scan-qr',
-    barcodeSuccess: 'Issue code captured from barcode.',
-    qrSuccess: 'Issue code captured from QR code.',
+function buildRequestedItemsForStation(stationId) {
+  const requests = state.stationRequests.filter((request) => Number(request.station_id) === Number(stationId));
+  const totals = new Map();
+  requests.forEach((request) => {
+    const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
+    requestedItems.forEach((entry) => {
+      const name = String(entry.name || '').trim();
+      const quantity = Math.max(0, Number.parseInt(entry.quantity || 0, 10));
+      if (!name || quantity <= 0) return;
+      const key = name.toLowerCase();
+      const existing = totals.get(key) || { name, requestedQuantity: 0 };
+      existing.requestedQuantity += quantity;
+      totals.set(key, existing);
+    });
   });
-  
-  issueForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const payload = formToPayload(issueForm);
-    payload.mode = 'issue';
-    payload.source = payload.code ? 'scan' : 'manual';
-    if (!payload.itemId) delete payload.itemId;
-    if (!payload.code) delete payload.code;
+ 
+  return [...totals.values()].map((entry) => {
+    const inventoryItem = state.items.find((item) => item.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
+    return {
+      ...entry,
+      itemId: inventoryItem?.id || null,
+      available: Number.parseInt(inventoryItem?.total_quantity || 0, 10),
+      itemName: inventoryItem?.name || entry.name,
+    };
+  });
+}
+
+function openIssueItemsModal(stationId) {
+  const station = state.stations.find((entry) => Number(entry.id) === Number(stationId));
+  const requestedItems = buildRequestedItemsForStation(stationId);
+  if (!station || !requestedItems.length) {
+    showToast('No active requested items for this station.', true);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  const lastIssuerKey = 'issue:lastIssuerIdentity';
+  const rememberedIdentity = window.localStorage.getItem(lastIssuerKey) || '';
+
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Issue items · ${escapeHtml(station.name)}</h3>
+      <label>Name or employee number
+        <input type="text" name="issuedBy" value="${escapeHtml(rememberedIdentity)}" required />
+      </label>
+      <div class="stack compact">
+        ${requestedItems.map((item, index) => `
+          <div class="issue-row" data-index="${index}">
+            <input type="checkbox" data-field="selected" ${item.itemId ? '' : 'disabled'} />
+            <div>
+              <strong>${escapeHtml(item.itemName)}</strong> · Requested: ${item.requestedQuantity}
+              ${item.itemId ? '' : '<div class="helper">Not found in inventory list.</div>'}
+            </div>
+            <input type="number" min="1" max="${Math.max(0, item.available)}" value="${item.requestedQuantity}" data-field="issueQty" class="hidden" />
+            <span class="helper">Available: ${item.available}</span>
+          </div>
+        `).join('')}
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmedPulled" />
+        I pulled all selected items and set them out for issue.
+      </label>
+      <div class="scanner-modal__actions">
+        <button type="button" class="ghost" data-action="cancel">Cancel</button>
+        <button type="button" data-action="submit" class="hidden">Submit</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const submitButton = overlay.querySelector('[data-action="submit"]');
+  const confirmPulled = overlay.querySelector('input[name="confirmedPulled"]');
+  const identityInput = overlay.querySelector('input[name="issuedBy"]');
+
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  overlay.querySelectorAll('[data-field="selected"]').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const row = checkbox.closest('.issue-row');
+      const qtyInput = row?.querySelector('[data-field="issueQty"]');
+      if (!qtyInput) return;
+      qtyInput.classList.toggle('hidden', !checkbox.checked);
+    });
+  });
+
+  confirmPulled?.addEventListener('change', () => {
+    submitButton?.classList.toggle('hidden', !confirmPulled.checked);
+  });
+
+  submitButton?.addEventListener('click', async () => {
+    const issuedBy = identityInput.value.trim();
+    if (!issuedBy) {
+      showToast('Enter a name or employee number.', true);
+      return;
+    }
+
+    const selected = [...overlay.querySelectorAll('.issue-row')].map((row, index) => {
+      const checked = row.querySelector('[data-field="selected"]')?.checked;
+      const qtyRaw = row.querySelector('[data-field="issueQty"]')?.value;
+      const qty = Number.parseInt(qtyRaw || '0', 10);
+      return checked ? { ...requestedItems[index], issueQuantity: qty } : null;
+    }).filter(Boolean);
+
+    if (!selected.length) {
+      showToast('Select at least one requested item to issue.', true);
+      return;
+    }
+
+    const overLimit = selected.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available);
+    if (overLimit) {
+      showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${overLimit.available}.`, true);
+      return;
+    }
+
+    const summary = selected.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`).join('\n');
+    const shouldSubmit = window.confirm(`Issue summary for ${station.name}:\n\n${summary}\n\nSubmit and save these changes?`);
+    if (!shouldSubmit) return;
+
     try {
-      await fetchJson('/api/inventory/adjust', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      issueForm.reset();
+    for (const item of selected) {
+        if (!item.itemId) continue;
+        await fetchJson('/api/inventory/adjust', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'issue',
+            source: 'manual',
+            stationId: station.id,
+            itemId: item.itemId,
+            quantity: item.issueQuantity,
+            performedBy: issuedBy,
+            note: `Issued from station request queue for ${station.name}.`,
+          }),
+        });
+      }
+
+      window.localStorage.setItem(lastIssuerKey, issuedBy);
+      close();
       await loadBootstrap();
       renderIssuePage();
-      showToast('Inventory issued.');
+      showTimedPopup('Station items have been submitted and saved.', 5000);
     } catch (error) {
       showToast(error.message, true);
+    }
+  });
+}
+
+async function wireIssueForm() {
+  const stationList = document.querySelector('#issue-station-list');
+  if (!stationList) return;
+
+  stationList.addEventListener('click', (event) => {
+    const toggleButton = event.target.closest('[data-action="toggle-station-issue"]');
+    if (toggleButton) {
+      const wrapper = toggleButton.closest('.issue-station-listing');
+      const panel = wrapper?.querySelector('.issue-station-listing__panel');
+      if (!panel) return;
+      const isHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', !isHidden);
+      toggleButton.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+      return;
+    }
+
+    const issueButton = event.target.closest('[data-action="open-issue-items"]');
+    if (issueButton?.dataset.stationId) {
+      openIssueItemsModal(issueButton.dataset.stationId);
     }
   });
 }
