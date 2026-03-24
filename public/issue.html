@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DFD Supply Inventory · Issue Inventory</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="issue">
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">DFD Supply</p>
+          <h1>Issue Inventory</h1>
+          <p class="subtitle">Issue stock from main inventory to a station using item selection or scanned codes.</p>
+        </div>
+        <nav class="top-nav">
+          <a href="/index.html">Main Page</a>
+          <a href="/inventory.html">Inventory Actions</a>
+          <a href="/restock.html">Restock Page</a>
+          <a href="/search.html">Search Page</a>
+        </nav>
+      </header>
+
+      <main class="layout">
+        <section class="panel stack">
+          <h2>Issue stock to a station</h2>
+          <form id="issue-form" class="stack compact">
+            <label>Station<select name="stationId" id="issue-station" required></select></label>
+            <label>Item<select name="itemId" id="issue-item"></select></label>
+            <label>Or scan/code<input name="code" /></label>
+            <div class="inline-actions">
+              <button type="button" id="issue-scan-barcode" class="secondary">Scan barcode</button>
+              <button type="button" id="issue-scan-qr" class="secondary">Scan QR code</button>
+            </div>
+            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
+            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
+            <label>Note<input name="note" /></label>
+            <button type="submit">Issue inventory</button>
+          </form>
+        </section>
+
+        <section class="panel stack wide">
+          <h2>Recent changes</h2>
+          <div id="transaction-list" class="stack compact"></div>
+        </section>
+      </main>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
