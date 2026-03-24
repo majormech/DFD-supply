@@ -99,6 +99,8 @@ export async function bootstrapData(db) {
         sr.requester_name,
         sr.requested_items_json,
         sr.other_items,
+        sr.completed_by,
+        sr.completed_at,
         sr.created_at,
         s.name AS station_name,
         s.code AS station_code
@@ -446,6 +448,45 @@ export async function createStationRequest(request, env) {
   }
 
   return json({ ok: true, emailed: Boolean(settings.supply_officer_email && env.RESEND_API_KEY && env.SUPPLY_FROM_EMAIL) }, { status: 201 });
+}
+
+export async function completeStationRequests(request, env) {
+  const body = await parseBody(request);
+  const completedBy = String(body?.completedBy || '').trim();
+  const stationId = body?.stationId ? Number.parseInt(body.stationId, 10) : null;
+  const stationCode = String(body?.stationCode || '').trim();
+  const requestIds = Array.isArray(body?.requestIds)
+    ? body.requestIds.map((value) => Number.parseInt(value, 10)).filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+
+  if (!completedBy) return badRequest('completedBy is required');
+
+  let resolvedStationId = stationId;
+  if (!resolvedStationId && stationCode) {
+    const station = await env.DB.prepare('SELECT id FROM stations WHERE code = ?').bind(stationCode).first();
+    if (!station) return badRequest('Invalid station', 404);
+    resolvedStationId = Number(station.id);
+  }
+
+  if (!resolvedStationId && !requestIds.length) return badRequest('stationId, stationCode, or requestIds is required');
+
+  if (requestIds.length) {
+    const placeholders = requestIds.map(() => '?').join(', ');
+    await env.DB.prepare(`
+      UPDATE station_requests
+      SET completed_by = ?, completed_at = CURRENT_TIMESTAMP
+      WHERE id IN (${placeholders}) AND completed_at IS NULL
+    `).bind(completedBy, ...requestIds).run();
+    return json({ ok: true, completedBy, requestIds });
+  }
+
+  await env.DB.prepare(`
+    UPDATE station_requests
+    SET completed_by = ?, completed_at = CURRENT_TIMESTAMP
+    WHERE station_id = ? AND completed_at IS NULL
+  `).bind(completedBy, resolvedStationId).run();
+
+  return json({ ok: true, stationId: resolvedStationId, completedBy });
 }
 
 export async function deleteItem(request, env) {
