@@ -257,7 +257,6 @@ function renderIssuePage() {
 }
 
 function renderRestockPage() {
-  document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
   renderRecentTransactions();
 }
 
@@ -331,32 +330,163 @@ async function wireIssueForm() {
   });
 }
 
+function formatDateTimeLocal(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function restockStorageKey(itemId) {
+  return `restock:lastCost:${itemId}`;
+}
+
 async function wireRestockForm() {
   const restockForm = document.querySelector('#restock-form');
-  setupInventoryCodeScanner(restockForm, {
-    barcodeButtonSelector: '#restock-scan-barcode',
-    qrButtonSelector: '#restock-scan-qr',
-    barcodeSuccess: 'Restock code captured from barcode.',
-    qrSuccess: 'Restock code captured from QR code.',
+   if (!restockForm) return;
+
+  const codeInput = restockForm.querySelector('#restock-code');
+  const itemIdInput = restockForm.querySelector('#restock-item-id');
+  const summary = restockForm.querySelector('#restock-item-summary');
+  const currentStockEl = restockForm.querySelector('#restock-current-stock');
+  const resultEl = document.querySelector('#restock-result');
+  const performedByInput = restockForm.querySelector('#restock-performed-by');
+  const dateTimeInput = restockForm.querySelector('#restock-datetime');
+  const unitCostInput = restockForm.querySelector('#restock-unit-cost');
+  const followup = restockForm.querySelector('#barcode-followup');
+  const skipBarcode = restockForm.querySelector('#skip-barcode-capture');
+  const newBarcodeInput = restockForm.querySelector('#restock-new-barcode');
+  const newBarcodeButton = restockForm.querySelector('#restock-add-barcode');
+  const barcodeScanButton = restockForm.querySelector('#restock-scan-barcode');
+  const qrScanButton = restockForm.querySelector('#restock-scan-qr');
+
+  let activeItem = null;
+  let scannedVia = '';
+
+  const updateItemSummary = (item, sourceCode = '') => {
+    if (!item) {
+      activeItem = null;
+      itemIdInput.value = '';
+      currentStockEl.textContent = '—';
+      summary.innerHTML = '<h3>Selected item</h3><p class="helper">Scan a code to load item details.</p>';
+      followup.classList.add('hidden');
+      return;
+    }
+
+    activeItem = item;
+    itemIdInput.value = String(item.id);
+    currentStockEl.textContent = `${item.total_quantity}`;
+    summary.innerHTML = `
+      <h3>Selected item</h3>
+      <div><strong>${item.name}</strong> (${item.sku})</div>
+      <div class="helper">Matched by: ${sourceCode || 'code lookup'}</div>
+    `;
+
+    const rememberedCost = window.localStorage.getItem(restockStorageKey(item.id));
+    unitCostInput.value = rememberedCost ?? String(Number(item.unit_cost || 0) || '');
+
+    const matchedQr = String(sourceCode || '').trim().toLowerCase() === String(item.qr_code || '').trim().toLowerCase();
+    if (matchedQr || scannedVia === 'qr') {
+      followup.classList.remove('hidden');
+    } else {
+      followup.classList.add('hidden');
+    }
+  };
+
+  const lookupByCode = async (code) => {
+    const trimmed = (code || '').trim();
+    if (!trimmed) {
+      updateItemSummary(null);
+      return;
+    }
+
+    const localItem = findItemByCode(trimmed);
+    if (localItem) {
+      updateItemSummary(localItem, trimmed);
+      return;
+    }
+
+    try {
+      const data = await fetchJson(`/api/scan?code=${encodeURIComponent(trimmed)}`);
+      updateItemSummary(data.item, trimmed);
+    } catch {
+      updateItemSummary(null);
+      showToast('No matching inventory item for that code.', true);
+    }
+  };
+
+  const runScan = async (mode) => {
+    try {
+      const code = await scanCodeWithCamera(mode === 'qr' ? 'Scan item QR code' : 'Scan item barcode');
+      scannedVia = mode;
+      codeInput.value = code;
+      await lookupByCode(code);
+      showToast('Item code captured and matched.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  };
+
+  barcodeScanButton?.addEventListener('click', () => runScan('barcode'));
+  qrScanButton?.addEventListener('click', () => runScan('qr'));
+
+  codeInput.addEventListener('change', () => {
+    scannedVia = '';
+    lookupByCode(codeInput.value).catch((error) => showToast(error.message, true));
   });
+
+  skipBarcode.addEventListener('change', () => {
+    const disabled = skipBarcode.checked;
+    newBarcodeInput.disabled = disabled;
+    newBarcodeButton.disabled = disabled;
+    if (disabled) newBarcodeInput.value = '';
+  });
+  skipBarcode.dispatchEvent(new Event('change'));
+
+  newBarcodeButton?.addEventListener('click', async () => {
+    if (skipBarcode.checked) return;
+    try {
+      const newCode = await scanCodeWithCamera('Scan new barcode for this item');
+      newBarcodeInput.value = newCode;
+      showToast('New barcode captured.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+
+  dateTimeInput.value = formatDateTimeLocal();
+  performedByInput.value = window.localStorage.getItem('restock:lastPerformer') || '';
 
   restockForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const payload = formToPayload(restockForm);
     payload.mode = 'restock';
+    payload.skipBarcodeCapture = skipBarcode.checked ? 'true' : 'false';
     payload.source = payload.code ? 'scan' : 'manual';
     if (!payload.itemId) delete payload.itemId;
     if (!payload.code) delete payload.code;
     try {
-      await fetchJson('/api/inventory/adjust', {
+      const response = await fetchJson('/api/inventory/adjust', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      restockForm.reset();
+      
+      if (activeItem && payload.unitCost !== '') {
+        window.localStorage.setItem(restockStorageKey(activeItem.id), payload.unitCost);
+      }
+      window.localStorage.setItem('restock:lastPerformer', payload.performedBy || '');
+
+      const previous = response.previousTotalQuantity;
+      const current = response.newTotalQuantity;
+      resultEl.textContent = Number.isFinite(previous) && Number.isFinite(current)
+        ? `Restock complete: ${activeItem?.name || 'Item'} moved from ${previous} to ${current} in stock.`
+        : 'Restock complete.';
+      
       await loadBootstrap();
       renderRestockPage();
+      dateTimeInput.value = formatDateTimeLocal();
       showToast('Inventory restocked.');
+      updateItemSummary(response.item || null, codeInput.value);
+      currentStockEl.textContent = `${response.newTotalQuantity}`;
     } catch (error) {
       showToast(error.message, true);
     }
