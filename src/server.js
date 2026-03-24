@@ -71,6 +71,7 @@ export async function bootstrapData(db) {
           ORDER BY ib.id
         ), '[]') AS barcodes_json
       FROM items i
+      WHERE i.deleted_at IS NULL
       ORDER BY i.name COLLATE NOCASE ASC
     `).all(),
     db.prepare(`
@@ -128,15 +129,16 @@ export async function bootstrapData(db) {
 
 async function resolveItem(db, { itemId, code }) {
   if (itemId) {
-    const found = await db.prepare('SELECT * FROM items WHERE id = ?').bind(itemId).first();
+    const found = await db.prepare('SELECT * FROM items WHERE id = ? AND deleted_at IS NULL').bind(itemId).first();
     return found || null;
   }
   if (!code) return null;
   return db.prepare(`
     SELECT *
     FROM items
-    WHERE barcode = ? OR qr_code = ? OR sku = ?
-      OR id IN (SELECT item_id FROM item_barcodes WHERE barcode = ?)
+  WHERE (barcode = ? OR qr_code = ? OR sku = ?
+      OR id IN (SELECT item_id FROM item_barcodes WHERE barcode = ?))
+      AND deleted_at IS NULL
     LIMIT 1
   `).bind(code, code, code, code).first();
 }
@@ -444,6 +446,43 @@ export async function createStationRequest(request, env) {
   }
 
   return json({ ok: true, emailed: Boolean(settings.supply_officer_email && env.RESEND_API_KEY && env.SUPPLY_FROM_EMAIL) }, { status: 201 });
+}
+
+export async function deleteItem(request, env) {
+  const body = await parseBody(request);
+  const itemId = Number.parseInt(body?.itemId, 10);
+  const performedBy = String(body?.performedBy || '').trim();
+  const employeeOrDepartment = String(body?.employeeOrDepartment || '').trim();
+  const confirmed = String(body?.confirmed || '').toLowerCase() === 'true';
+
+  if (!Number.isInteger(itemId) || itemId <= 0) return badRequest('itemId is required');
+  if (!performedBy) return badRequest('performedBy is required');
+  if (!employeeOrDepartment) return badRequest('employeeOrDepartment is required');
+  if (!confirmed) return badRequest('Confirmation checkbox must be checked');
+
+  const item = await env.DB.prepare('SELECT * FROM items WHERE id = ? AND deleted_at IS NULL').bind(itemId).first();
+  if (!item) return badRequest('Item not found', 404);
+
+  const note = `Item deleted from active inventory by ${performedBy} (${employeeOrDepartment}).`;
+  const txDelta = -Math.max(0, Number.parseInt(item.total_quantity || 0, 10));
+
+  await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by, created_at)
+      VALUES (?, NULL, ?, 'adjustment', 'manual', ?, ?, CURRENT_TIMESTAMP)
+    `).bind(item.id, txDelta, note, performedBy),
+    env.DB.prepare(`
+      UPDATE items
+      SET total_quantity = 0,
+          deleted_at = CURRENT_TIMESTAMP,
+          deleted_by = ?,
+          deleted_by_identifier = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(performedBy, employeeOrDepartment, item.id),
+  ]);
+
+  return json({ ok: true, itemId: item.id, deletedAt: new Date().toISOString() });
 }
 
 export { badRequest, json };
