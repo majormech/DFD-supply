@@ -1,51 +1,20 @@
+const page = document.body.dataset.page;
+
 const state = {
   items: [],
   stations: [],
   recentTransactions: [],
-  activeScanTarget: null,
-  activeScanFormat: null,
-  stream: null,
-  detector: null,
-  scanTimer: null,
 };
 
-const els = {
-  addItemForm: document.querySelector('#add-item-form'),
-  issueForm: document.querySelector('#issue-form'),
-  restockForm: document.querySelector('#restock-form'),
-  issueStation: document.querySelector('#issue-station'),
-  issueItem: document.querySelector('#issue-item'),
-  restockItem: document.querySelector('#restock-item'),
-  inventoryTable: document.querySelector('#inventory-table'),
-  transactionList: document.querySelector('#transaction-list'),
-  totalItemCount: document.querySelector('#total-item-count'),
-  totalStockCount: document.querySelector('#total-stock-count'),
-  toast: document.querySelector('#toast'),
-  scannerDialog: document.querySelector('#scanner-dialog'),
-  scannerVideo: document.querySelector('#scanner-video'),
-  scannerStatus: document.querySelector('#scanner-status'),
-  manualScanInput: document.querySelector('#manual-scan-input'),
-  manualScanSubmit: document.querySelector('#manual-scan-submit'),
-  scanAddBarcodeBtn: document.querySelector('#scan-add-barcode-btn'),
-  scanAddQrBtn: document.querySelector('#scan-add-qr-btn'),
-  scanIssueBtn: document.querySelector('#scan-issue-btn'),
-  scanRestockBtn: document.querySelector('#scan-restock-btn'),
-};
-
-function describeScanTarget(target) {
-  if (target === 'issue') return 'issue stock';
-  if (target === 'restock') return 'restock inventory';
-  if (target === 'add-barcode') return 'save a barcode for the new item';
-  if (target === 'add-qr') return 'save a QR code for the new item';
-  return 'scan a code';
-}
+const toast = document.querySelector('#toast');
 
 function showToast(message, isError = false) {
-  els.toast.textContent = message;
-  els.toast.style.background = isError ? '#c13737' : '#142033';
-  els.toast.classList.add('show');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.style.background = isError ? '#c13737' : '#142033';
+  toast.classList.add('show');
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => els.toast.classList.remove('show'), 2600);
+  showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
 async function fetchJson(url, options) {
@@ -55,212 +24,93 @@ async function fetchJson(url, options) {
   return data;
 }
 
-function itemOptionsMarkup(items) {
-  const options = ['<option value="">Select an item</option>'];
-  for (const item of items) {
-    options.push(`<option value="${item.id}">${item.name} · ${item.sku} · ${item.total_quantity} in stock</option>`);
-  }
-  return options.join('');
+function currency(value) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 }
 
-function stationOptionsMarkup(stations) {
-  return ['<option value="">Select a station</option>', ...stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+function formToPayload(form) {
+  return Object.fromEntries(new FormData(form).entries());
 }
 
-function renderInventory() {
-  els.totalItemCount.textContent = `${state.items.length} items`;
-  els.totalStockCount.textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
-  els.issueItem.innerHTML = itemOptionsMarkup(state.items);
-  els.restockItem.innerHTML = itemOptionsMarkup(state.items);
-  els.issueStation.innerHTML = stationOptionsMarkup(state.stations);
-
-  els.inventoryTable.innerHTML = state.items.length
-    ? state.items.map((item) => {
-        const stations = item.station_breakdown.length
-          ? item.station_breakdown
-              .filter((entry) => entry.quantity > 0)
-              .map((entry) => `<span class="pill">${entry.stationName}: ${entry.quantity}</span>`)
-              .join('')
-          : '<span class="helper">No station allocations yet.</span>';
-        return `
-          <tr>
-            <td><strong>${item.name}</strong><div class="helper">${item.description || 'No description'}</div></td>
-            <td>${item.sku}</td>
-            <td>${item.total_quantity}</td>
-            <td>${item.barcode || item.qr_code || 'Not assigned'}</td>
-            <td><div class="station-pills">${stations}</div></td>
-          </tr>`;
-      }).join('')
-    : '<tr><td colspan="5">No items have been added yet.</td></tr>';
+function itemOptions(items) {
+  return ['<option value="">Select an item</option>', ...items.map((item) => `<option value="${item.id}">${item.name} (${item.sku})</option>`)].join('');
 }
 
-function renderTransactions() {
-  els.transactionList.innerHTML = state.recentTransactions.length
-    ? state.recentTransactions.map((txn) => `
-        <article class="txn">
-          <strong>${txn.item_name} (${txn.item_sku})</strong>
-          <div class="${txn.quantity_delta >= 0 ? 'delta-positive' : 'delta-negative'}">
-            ${txn.quantity_delta >= 0 ? '+' : ''}${txn.quantity_delta} · ${txn.action_type} via ${txn.source}
-          </div>
-          <div class="helper">${txn.station_name || 'Main inventory only'} · ${new Date(txn.created_at).toLocaleString()}</div>
-          ${txn.note ? `<div>${txn.note}</div>` : ''}
-        </article>`).join('')
-    : '<p class="helper">No inventory activity recorded yet.</p>';
-}
-
-async function refresh() {
+async function loadBootstrap() {
   const data = await fetchJson('/api/bootstrap');
   state.items = data.items;
   state.stations = data.stations;
   state.recentTransactions = data.recentTransactions;
-  renderInventory();
-  renderTransactions();
+  return data;
 }
 
-function formToPayload(form) {
-  const data = new FormData(form);
-  return Object.fromEntries(data.entries());
+function renderMain() {
+  document.querySelector('#total-item-count').textContent = `${state.items.length} items`;
+  document.querySelector('#total-stock-count').textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
+  const table = document.querySelector('#inventory-table');
+  table.innerHTML = state.items.length
+    ? state.items.map((item) => `<tr><td>${item.name}</td><td>${item.sku}</td><td>${item.total_quantity}</td><td>${currency(item.unit_cost)}</td></tr>`).join('')
+    : '<tr><td colspan="4">No inventory items yet.</td></tr>';
 }
 
-async function submitAdjustment(form, mode, source = 'manual') {
-  const payload = formToPayload(form);
-  payload.mode = mode;
-  payload.source = source;
-  if (!payload.itemId) delete payload.itemId;
-  if (!payload.code) delete payload.code;
-  await fetchJson('/api/inventory/adjust', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  form.reset();
-  await refresh();
-  showToast(mode === 'issue' ? 'Inventory issued to station.' : 'Inventory restocked.');
+function renderInventoryPage() {
+  document.querySelector('#issue-item').innerHTML = itemOptions(state.items);
+  document.querySelector('#restock-item').innerHTML = itemOptions(state.items);
+  document.querySelector('#issue-station').innerHTML = ['<option value="">Select a station</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+
+  const txList = document.querySelector('#transaction-list');
+  txList.innerHTML = state.recentTransactions.length
+    ? state.recentTransactions.map((txn) => `
+      <article class="txn">
+        <strong>${txn.item_name} (${txn.item_sku})</strong>
+        <div>${txn.quantity_delta >= 0 ? '+' : ''}${txn.quantity_delta} · ${txn.action_type} · ${txn.station_name || 'Main inventory'}</div>
+        <div class="helper">${new Date(txn.created_at).toLocaleString()} · Changed by: ${txn.performed_by || 'Unknown'} · Source: ${txn.source}</div>
+        ${txn.note ? `<div>${txn.note}</div>` : ''}
+      </article>
+    `).join('')
+    : '<p class="helper">No changes yet.</p>';
 }
 
-async function handleCodeFill(targetForm, code, mode) {
-  const lookup = await fetchJson(`/api/scan?code=${encodeURIComponent(code)}`);
-  targetForm.querySelector('input[name="code"]').value = code;
-  targetForm.querySelector('select[name="itemId"]').value = String(lookup.item.id);
-  showToast(`Matched ${lookup.item.name}. Ready to ${mode === 'issue' ? 'issue' : 'restock'}.`);
-}
+async function wireInventoryForms() {
+  const addForm = document.querySelector('#add-item-form');
+  const issueForm = document.querySelector('#issue-form');
+  const restockForm = document.querySelector('#restock-form');
 
-async function createItem(event) {
-  event.preventDefault();
-  const payload = formToPayload(els.addItemForm);
-  await fetchJson('/api/items', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  els.addItemForm.reset();
-  await refresh();
-  showToast('Inventory item created.');
-}
-
-async function onIssue(event) {
-  event.preventDefault();
-  await submitAdjustment(els.issueForm, 'issue', els.issueForm.querySelector('input[name="code"]').value ? 'scan' : 'manual');
-}
-
-async function onRestock(event) {
-  event.preventDefault();
-  await submitAdjustment(els.restockForm, 'restock', els.restockForm.querySelector('input[name="code"]').value ? 'scan' : 'manual');
-}
-
-async function startScanning(target) {
-  state.activeScanTarget = target;
-  state.activeScanFormat = null;
-  els.manualScanInput.value = '';
-  els.scannerStatus.textContent = `Opening scanner to ${describeScanTarget(target)}...`;
-  els.scannerDialog.showModal();
-
-  if (!('BarcodeDetector' in window)) {
-    els.scannerStatus.textContent = `BarcodeDetector is not available in this browser. Enter the code manually below to ${describeScanTarget(target)}.`;
-    return;
-  }
-
-  try {
-    state.detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    els.scannerVideo.srcObject = state.stream;
-    els.scannerStatus.textContent = `Point the camera at a barcode or QR code to ${describeScanTarget(target)}.`;
-    scanLoop();
-  } catch (error) {
-   els.scannerStatus.textContent = `Camera unavailable: ${error.message}. You can enter the code manually below to ${describeScanTarget(target)}.`;
-  }
-}
-
-async function scanLoop() {
-  if (!state.detector || !els.scannerDialog.open) return;
-  try {
-    const barcodes = await state.detector.detect(els.scannerVideo);
-    if (barcodes[0]?.rawValue) {
-      els.manualScanInput.value = barcodes[0].rawValue;
-      state.activeScanFormat = barcodes[0].format || null;
-      await applyScannedCode();
-      return;
-    }
-  } catch {
-    // Continue polling while the video warms up.
-  }
-  state.scanTimer = window.setTimeout(scanLoop, 500);
-}
-
-function stopScanning() {
-  if (state.scanTimer) window.clearTimeout(state.scanTimer);
-  if (state.stream) {
-    for (const track of state.stream.getTracks()) track.stop();
-  }
-  state.scanTimer = null;
-  state.stream = null;
-  state.detector = null;
-  tate.activeScanFormat = null;
-  els.scannerVideo.srcObject = null;
-  els.scannerStatus.textContent = '';
-}
-
-async function applyScannedCode() {
-  const code = els.manualScanInput.value.trim();
-  if (!code || !state.activeScanTarget) return;
-  if ((state.activeScanTarget === 'add-barcode' || state.activeScanTarget === 'add-qr') && state.activeScanFormat) {
-    const scannedQr = state.activeScanFormat === 'qr_code';
-    if ((state.activeScanTarget === 'add-barcode' && scannedQr) || (state.activeScanTarget === 'add-qr' && !scannedQr)) {
-      throw new Error(`Detected a ${scannedQr ? 'QR code' : 'barcode'}. Use the matching save button or enter the value manually.`);
-    }
-  }
-  if (state.activeScanTarget === 'issue' || state.activeScanTarget === 'restock') {
-    const targetForm = state.activeScanTarget === 'issue' ? els.issueForm : els.restockForm;
-    await handleCodeFill(targetForm, code, state.activeScanTarget);
-  } else {
-    const fieldName = state.activeScanTarget === 'add-barcode' ? 'barcode' : 'qrCode';
-    els.addItemForm.querySelector(`input[name="${fieldName}"]`).value = code;
-    showToast(state.activeScanTarget === 'add-barcode' ? 'Barcode saved for the new item.' : 'QR code saved for the new item.');
-  }
-  els.scannerDialog.close();
-  stopScanning();
-}
-
-function wireEvents() {
-  els.addItemForm.addEventListener('submit', (event) => createItem(event).catch((error) => showToast(error.message, true)));
-  els.issueForm.addEventListener('submit', (event) => onIssue(event).catch((error) => showToast(error.message, true)));
-  els.restockForm.addEventListener('submit', (event) => onRestock(event).catch((error) => showToast(error.message, true)));
-  els.scanAddBarcodeBtn.addEventListener('click', () => startScanning('add-barcode').catch((error) => showToast(error.message, true)));
-  els.scanAddQrBtn.addEventListener('click', () => startScanning('add-qr').catch((error) => showToast(error.message, true)));
-  els.scanIssueBtn.addEventListener('click', () => startScanning('issue').catch((error) => showToast(error.message, true)));
-  els.scanRestockBtn.addEventListener('click', () => startScanning('restock').catch((error) => showToast(error.message, true)));
-  els.manualScanSubmit.addEventListener('click', (event) => {
+  addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    applyScannedCode().catch((error) => showToast(error.message, true));
+    try {
+      await fetchJson('/api/items', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(formToPayload(addForm)),
+      });
+      addForm.reset();
+      await loadBootstrap();
+      renderInventoryPage();
+      showToast('Item added.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
   });
-  els.scannerDialog.addEventListener('close', stopScanning);
 
-  for (const form of [els.issueForm, els.restockForm]) {
-    form.querySelector('input[name="code"]').addEventListener('change', async (event) => {
-      if (!event.target.value.trim()) return;
-      const mode = form === els.issueForm ? 'issue' : 'restock';
+  for (const [form, mode] of [[issueForm, 'issue'], [restockForm, 'restock']]) {
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = formToPayload(form);
+      payload.mode = mode;
+      payload.source = payload.code ? 'scan' : 'manual';
+      if (!payload.itemId) delete payload.itemId;
+      if (!payload.code) delete payload.code;
       try {
-        await handleCodeFill(form, event.target.value.trim(), mode);
+        await fetchJson('/api/inventory/adjust', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        form.reset();
+        await loadBootstrap();
+        renderInventoryPage();
+        showToast(mode === 'issue' ? 'Inventory issued.' : 'Inventory restocked.');
       } catch (error) {
         showToast(error.message, true);
       }
@@ -268,5 +118,117 @@ function wireEvents() {
   }
 }
 
-wireEvents();
-refresh().catch((error) => showToast(error.message, true));
+function renderAnalytics(data) {
+  const byItem = document.querySelector('#by-item');
+  byItem.innerHTML = data.byItem.length
+    ? data.byItem.map((row) => `<tr><td>${row.name} (${row.sku})</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
+    : '<tr><td colspan="3">No usage in selected period.</td></tr>';
+
+  const byStation = document.querySelector('#by-station');
+  byStation.innerHTML = data.byStation.length
+    ? data.byStation.map((row) => `<tr><td>${row.station_name}</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
+    : '<tr><td colspan="3">No station usage in selected period.</td></tr>';
+
+  const trend = document.querySelector('#trend-bars');
+  const maxCost = Math.max(1, ...data.trend.map((row) => Number(row.used_cost || 0)));
+  trend.innerHTML = data.trend.length
+    ? data.trend.map((row) => {
+      const width = Math.max(2, Math.round((Number(row.used_cost || 0) / maxCost) * 100));
+      return `<div class="trend-row"><span>${row.day}</span><div class="trend-bar"><i style="width:${width}%"></i></div><strong>${currency(row.used_cost)}</strong></div>`;
+    }).join('')
+    : '<p class="helper">No trend data in selected period.</p>';
+}
+
+async function wireSearchPage() {
+  const select = document.querySelector('#days-select');
+  const load = async () => {
+    const data = await fetchJson(`/api/analytics?days=${encodeURIComponent(select.value)}`);
+    renderAnalytics(data);
+  };
+  select.addEventListener('change', () => load().catch((error) => showToast(error.message, true)));
+  await load();
+}
+
+async function wireRequestPage() {
+  const form = document.querySelector('#request-form');
+  const itemSelects = [...document.querySelectorAll('.request-item')];
+  itemSelects.forEach((el) => {
+    el.innerHTML = itemOptions(state.items);
+  });
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const raw = formToPayload(form);
+    const items = [1, 2, 3].map((i) => {
+      const id = raw[`item${i}`];
+      const qty = raw[`qty${i}`];
+      const item = state.items.find((entry) => String(entry.id) === String(id));
+      return item ? { name: item.name, quantity: qty } : null;
+    }).filter(Boolean);
+
+    try {
+      await fetchJson('/api/requests', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stationCode: raw.stationCode,
+          requesterName: raw.requesterName,
+          otherItems: raw.otherItems,
+          items,
+        }),
+      });
+      form.reset();
+      showToast('Request submitted to supply officer.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+
+async function wireAdminPage() {
+  const form = document.querySelector('#admin-settings-form');
+  const keyInput = document.querySelector('#admin-key');
+
+  const headers = () => ({ ...(keyInput.value ? { 'x-admin-key': keyInput.value } : {}) });
+
+  async function loadSettings() {
+    const settings = await fetchJson('/api/admin/settings', { headers: headers() });
+    form.querySelector('input[name="supplyOfficerEmail"]').value = settings.supply_officer_email || '';
+    form.querySelector('input[name="adminEmails"]').value = settings.admin_emails || '';
+  }
+
+  keyInput?.addEventListener('change', () => loadSettings().catch((error) => showToast(error.message, true)));
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const payload = formToPayload(form);
+      await fetchJson('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers() },
+        body: JSON.stringify(payload),
+      });
+      showToast('Admin settings saved.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+
+  await loadSettings();
+}
+
+(async function init() {
+  try {
+    await loadBootstrap();
+    if (page === 'main') renderMain();
+    if (page === 'inventory') {
+      renderInventoryPage();
+      await wireInventoryForms();
+    }
+    if (page === 'search') await wireSearchPage();
+    if (page === 'request') await wireRequestPage();
+    if (page === 'admin') await wireAdminPage();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+})();
