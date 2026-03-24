@@ -223,6 +223,32 @@ button.danger {
   background: #fff;
 }
 
+.shopping-list {
+  border-width: 2px;
+}
+
+.shopping-list--alert {
+  border-color: #bf2222;
+  background: #ffe7e7;
+}
+
+.shopping-list--clear {
+  border-color: #14994f;
+  background: #e8fff1;
+}
+
+.shopping-list__items {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shopping-list__item span {
+  display: block;
+}
+
 .issue-station-listing {
   border: 1px solid var(--border);
   border-radius: 12px;
