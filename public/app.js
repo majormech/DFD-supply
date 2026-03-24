@@ -378,7 +378,7 @@ function renderInventoryPage() {
 }
 
 function renderIssuePage() {
-  onst stationList = document.querySelector('#issue-station-list');
+  const stationList = document.querySelector('#issue-station-list');
   if (!stationList) return;
   const requestsByStation = state.stationRequests.reduce((acc, request) => {
     if (!acc[request.station_id]) acc[request.station_id] = [];
