@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DFD Supply Inventory · Inventory Actions</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="inventory">
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">DFD Supply</p>
+          <h1>Inventory Add / Restock / Issue</h1>
+          <p class="subtitle">Track changes with timestamps and who performed each update.</p>
+        </div>
+        <nav class="top-nav">
+          <a href="/index.html">Main Page</a>
+          <a href="/search.html">Search Page</a>
+        </nav>
+      </header>
+
+      <main class="layout">
+        <section class="panel stack">
+          <h2>Add new inventory item</h2>
+          <form id="add-item-form" class="stack compact">
+            <label>Item name<input name="name" required /></label>
+            <label>SKU<input name="sku" required /></label>
+            <label>Barcode<input name="barcode" /></label>
+            <label>QR code<input name="qrCode" /></label>
+            <label>Description<input name="description" /></label>
+            <label>Opening quantity<input name="totalQuantity" type="number" min="0" value="0" /></label>
+            <label>Unit cost ($)<input name="unitCost" type="number" min="0" step="0.01" value="0" /></label>
+            <button type="submit">Add item</button>
+          </form>
+        </section>
+
+        <section class="panel stack">
+          <h2>Issue stock to a station</h2>
+          <form id="issue-form" class="stack compact">
+            <label>Station<select name="stationId" id="issue-station" required></select></label>
+            <label>Item<select name="itemId" id="issue-item"></select></label>
+            <label>Or scan/code<input name="code" /></label>
+            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
+            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
+            <label>Note<input name="note" /></label>
+            <button type="submit">Issue inventory</button>
+          </form>
+        </section>
+
+        <section class="panel stack">
+          <h2>Restock inventory</h2>
+          <form id="restock-form" class="stack compact">
+            <label>Item<select name="itemId" id="restock-item"></select></label>
+            <label>Or scan/code<input name="code" /></label>
+            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
+            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
+            <label>Note<input name="note" /></label>
+            <button type="submit">Restock inventory</button>
+          </form>
+        </section>
+
+        <section class="panel stack wide">
+          <h2>Recent changes</h2>
+          <div id="transaction-list" class="stack compact"></div>
+        </section>
+      </main>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
