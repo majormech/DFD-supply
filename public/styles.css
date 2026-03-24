@@ -249,6 +249,38 @@ button.danger {
   display: block;
 }
 
+.request-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.request-history-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.request-history-card ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.request-history-card--complete {
+  border-color: #14994f;
+  background: #e8fff1;
+}
+
+.request-history-card--pending {
+  border-color: #bf2222;
+  background: #ffe7e7;
+}
+
+button.request-success {
+  background: var(--success);
+  color: #fff;
+}
+
 .issue-station-listing {
   border: 1px solid var(--border);
   border-radius: 12px;
