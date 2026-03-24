@@ -18,6 +18,28 @@ function showToast(message, isError = false) {
   showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+function showTimedPopup(message, durationMs = 5000) {
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Success</h3>
+      <p>${message}</p>
+      <div class="scanner-modal__actions">
+        <button type="button" data-action="ok">OK</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-action="ok"]')?.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  window.setTimeout(close, durationMs);
+}
+
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
@@ -276,27 +298,112 @@ function renderRecentTransactions() {
 
 async function wireInventoryPage() {
   const addForm = document.querySelector('#add-item-form');
+if (!addForm) return;
 
   setupAddItemScanFields(addForm);
 
+  const qrInput = addForm.querySelector('#add-item-qr');
+  const barcodeInput = addForm.querySelector('#add-item-barcodes');
+  const skipBarcodeInput = addForm.querySelector('#add-item-skip-barcode');
+  const dateTimeInput = addForm.querySelector('#add-item-datetime');
+  const performedByInput = addForm.querySelector('#add-item-performed-by');
+  const unitCostInput = addForm.querySelector('#add-item-unit-cost');
+  const reviewSection = addForm.querySelector('#add-item-review');
+  const reviewContent = addForm.querySelector('#add-item-review-content');
+  const previewButton = addForm.querySelector('#add-item-preview');
+  const submitButton = addForm.querySelector('#add-item-submit');
+  const reviewConfirmInput = addForm.querySelector('#add-item-review-confirm');
+  const nameInput = addForm.querySelector('#add-item-name');
+
+  const syncBarcodeState = () => {
+    const disabled = skipBarcodeInput.checked;
+    barcodeInput.disabled = disabled;
+    const barcodeScanButton = barcodeInput.parentElement?.querySelector('button');
+    if (barcodeScanButton) barcodeScanButton.disabled = disabled;
+    if (disabled) barcodeInput.value = '';
+  };
+
+  const lastPerformerKey = 'add-item:lastPerformer';
+  const draftKey = (qrCode) => `add-item:lastCost:${String(qrCode || '').trim().toLowerCase()}`;
+
+  const resetReviewState = () => {
+    reviewSection.classList.add('hidden');
+    reviewConfirmInput.checked = false;
+    submitButton.disabled = true;
+  };
+
+  const buildReviewHtml = () => {
+    const values = formToPayload(addForm);
+    return `
+      <div><strong>QR code:</strong> ${values.qrCode || '—'}</div>
+      <div><strong>Barcode(s):</strong> ${skipBarcodeInput.checked ? 'Skipped' : (values.barcodes || '—')}</div>
+      <div><strong>Item name:</strong> ${values.name || '—'}</div>
+      <div><strong>Quantity:</strong> ${values.totalQuantity || '—'}</div>
+      <div><strong>Low stock level:</strong> ${values.lowStockLevel || '—'}</div>
+      <div><strong>Unit cost:</strong> ${values.unitCost ? currency(values.unitCost) : 'Not provided'}</div>
+      <div><strong>Date/time:</strong> ${values.performedAt || '—'}</div>
+      <div><strong>Completed by:</strong> ${values.performedBy || '—'}</div>
+      <div><strong>Notes:</strong> ${values.note || 'None'}</div>
+    `;
+  };
+
+  dateTimeInput.value = formatDateTimeLocal();
+  performedByInput.value = window.localStorage.getItem(lastPerformerKey) || '';
+  syncBarcodeState();
+  skipBarcodeInput.addEventListener('change', () => {
+    syncBarcodeState();
+    resetReviewState();
+  });
+  reviewConfirmInput.addEventListener('change', () => {
+    submitButton.disabled = !reviewConfirmInput.checked;
+  });
+
+  [qrInput, barcodeInput, unitCostInput, performedByInput, nameInput].forEach((input) => {
+    input?.addEventListener('input', resetReviewState);
+  });
+
+  qrInput?.addEventListener('change', () => {
+    const rememberedCost = window.localStorage.getItem(draftKey(qrInput.value));
+    if (rememberedCost != null) unitCostInput.value = rememberedCost;
+  });
+
+  previewButton?.addEventListener('click', () => {
+    if (!addForm.reportValidity()) return;
+    reviewContent.innerHTML = buildReviewHtml();
+    reviewSection.classList.remove('hidden');
+  });
+
   addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!reviewConfirmInput.checked) {
+      showToast('Review and confirm the summary before submitting.', true);
+      return;
+    }
+
+    const payload = formToPayload(addForm);
+    payload.skipBarcodeCapture = skipBarcodeInput.checked ? 'true' : 'false';
     try {
       await fetchJson('/api/items', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(formToPayload(addForm)),
+        body: JSON.stringify(payload),
       });
+      if (payload.performedBy) window.localStorage.setItem(lastPerformerKey, payload.performedBy);
+      if (payload.qrCode && payload.unitCost !== '') window.localStorage.setItem(draftKey(payload.qrCode), payload.unitCost);
       addForm.reset();
+      dateTimeInput.value = formatDateTimeLocal();
+      performedByInput.value = window.localStorage.getItem(lastPerformerKey) || '';
+      skipBarcodeInput.checked = true;
+      syncBarcodeState();
+      resetReviewState();
       await loadBootstrap();
       renderInventoryPage();
-      showToast('Item added.');
+      showTimedPopup('Item has been added and saved to the inventory system.', 5000);
     } catch (error) {
       showToast(error.message, true);
     }
   });
-
-  }
+}
 
 async function wireIssueForm() {
   const issueForm = document.querySelector('#issue-form');
