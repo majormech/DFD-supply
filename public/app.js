@@ -307,9 +307,6 @@ async function openDeletePrompt(itemId, itemName) {
     <div class="scanner-modal__card">
       <h3>Delete Inventory Item</h3>
       <p>You are deleting: <strong>${escapeHtml(itemName)}</strong></p>
-      <label>Your name
-        <input type="text" name="performedBy" placeholder="Enter your full name" required />
-      </label>
       <label>Name or department employee number
         <input type="text" name="employeeOrDepartment" placeholder="e.g. 12345 or Supply Dept" required />
       </label>
@@ -326,7 +323,6 @@ async function openDeletePrompt(itemId, itemName) {
   document.body.appendChild(overlay);
 
   const close = () => overlay.remove();
-  const performedByInput = overlay.querySelector('input[name="performedBy"]');
   const identityInput = overlay.querySelector('input[name="employeeOrDepartment"]');
   const confirmCheckbox = overlay.querySelector('input[name="confirmDelete"]');
   const submitButton = overlay.querySelector('[data-action="submit"]');
@@ -341,10 +337,9 @@ async function openDeletePrompt(itemId, itemName) {
   });
 
   submitButton.addEventListener('click', async () => {
-    const performedBy = performedByInput.value.trim();
     const employeeOrDepartment = identityInput.value.trim();
-    if (!performedBy || !employeeOrDepartment) {
-      showToast('Enter your name and employee number/department.', true);
+  if (!employeeOrDepartment) {
+      showToast('Enter a name or department employee number.', true);
       return;
     }
 
@@ -354,7 +349,7 @@ async function openDeletePrompt(itemId, itemName) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           itemId,
-          performedBy,
+          performedBy: employeeOrDepartment,
           employeeOrDepartment,
           confirmed: confirmCheckbox.checked,
         }),
