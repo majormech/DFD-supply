@@ -4,6 +4,7 @@ import {
   badRequest,
   bootstrapData,
   createStationRequest,
+  completeStationRequests,
   deleteItem,
   getAdminSettings,
   getAnalytics,
@@ -44,6 +45,10 @@ export default {
       return createStationRequest(request, env);
     }
 
+    if (url.pathname === '/api/requests/complete' && request.method === 'POST') {
+      return completeStationRequests(request, env);
+    }
+    
     if (url.pathname === '/api/admin/settings' && request.method === 'GET') {
       return getAdminSettings(request, env);
     }
