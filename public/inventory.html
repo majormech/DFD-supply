@@ -17,6 +17,7 @@
         <nav class="top-nav">
           <a href="/index.html">Main Page</a>
           <a href="/search.html">Search Page</a>
+          <a href="/restock.html">Restock Page</a>
         </nav>
       </header>
 
@@ -41,22 +42,14 @@
             <label>Station<select name="stationId" id="issue-station" required></select></label>
             <label>Item<select name="itemId" id="issue-item"></select></label>
             <label>Or scan/code<input name="code" /></label>
+            <div class="inline-actions">
+              <button type="button" id="issue-scan-barcode" class="secondary">Scan barcode</button>
+              <button type="button" id="issue-scan-qr" class="secondary">Scan QR code</button>
+            </div>
             <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
             <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
             <label>Note<input name="note" /></label>
             <button type="submit">Issue inventory</button>
-          </form>
-        </section>
-
-        <section class="panel stack">
-          <h2>Restock inventory</h2>
-          <form id="restock-form" class="stack compact">
-            <label>Item<select name="itemId" id="restock-item"></select></label>
-            <label>Or scan/code<input name="code" /></label>
-            <label>Quantity<input name="quantity" type="number" min="1" value="1" required /></label>
-            <label>Changed by<input name="performedBy" required placeholder="Name" /></label>
-            <label>Note<input name="note" /></label>
-            <button type="submit">Restock inventory</button>
           </form>
         </section>
 
