@@ -184,6 +184,17 @@ export async function adjustInventory(request, env) {
   if (mode === 'issue' && !stationId) return badRequest('stationId is required when issuing inventory');
   if (!performedBy) return badRequest('performedBy is required');
 
+   const unitCost = body.unitCost === '' || body.unitCost == null ? null : Number.parseFloat(body.unitCost);
+  if (unitCost !== null && (Number.isNaN(unitCost) || unitCost < 0)) {
+    return badRequest('unitCost must be a positive number or 0');
+  }
+
+  const performedAtRaw = String(body.performedAt || '').trim();
+  const performedAt = performedAtRaw ? performedAtRaw.replace('T', ' ') : null;
+
+  const newBarcode = String(body.newBarcode || '').trim();
+  const skipBarcodeCapture = String(body.skipBarcodeCapture || 'true') === 'true';
+
   const delta = mode === 'restock' ? qty : -qty;
 
   if (item.total_quantity + delta < 0) {
@@ -195,12 +206,14 @@ export async function adjustInventory(request, env) {
   }
 
   try {
-    await env.DB.batch([
+    const operations = [
       env.DB.prepare(`
         UPDATE items
-        SET total_quantity = total_quantity + ?, updated_at = CURRENT_TIMESTAMP
+        SET total_quantity = total_quantity + ?,
+            unit_cost = COALESCE(?, unit_cost),
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).bind(delta, item.id),
+     `).bind(delta, unitCost, item.id),
       ...(stationId
         ? [env.DB.prepare(`
             UPDATE station_inventory
@@ -209,8 +222,8 @@ export async function adjustInventory(request, env) {
           `).bind(Math.abs(delta), stationId, item.id)]
         : []),
       env.DB.prepare(`
-        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by)
-        VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?)
+        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by, created_at)
+        VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP))
       `).bind(
         item.id,
         stationId,
@@ -218,14 +231,37 @@ export async function adjustInventory(request, env) {
         mode,
         body.source === 'scan' ? 'scan' : 'manual',
         body.note ?? '',
-        performedBy
+        performedBy,
+        performedAt || ''
       ),
-    ]);
+     ];
+
+    if (mode === 'restock' && !skipBarcodeCapture && newBarcode) {
+      operations.push(env.DB.prepare(`
+        INSERT INTO item_barcodes (item_id, barcode)
+        VALUES (?, ?)
+        ON CONFLICT(barcode) DO NOTHING
+      `).bind(item.id, newBarcode));
+      operations.push(env.DB.prepare(`
+        UPDATE items
+        SET barcode = COALESCE(barcode, ?)
+        WHERE id = ?
+      `).bind(newBarcode, item.id));
+    }
+
+    await env.DB.batch(operations);
   } catch (error) {
-    return badRequest(error.message, 500);
+    return badRequest(error.message.includes('UNIQUE') ? 'Barcode already belongs to another item.' : error.message, 500);
   }
 
-  return json({ ok: true });
+  const updatedItem = await env.DB.prepare('SELECT * FROM items WHERE id = ?').bind(item.id).first();
+
+  return json({
+    ok: true,
+    item: updatedItem,
+    previousTotalQuantity: item.total_quantity,
+    newTotalQuantity: updatedItem?.total_quantity,
+  });
 }
 
 export async function lookupScan(request, env) {
