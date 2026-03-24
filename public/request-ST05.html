@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST05 Supply Request</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-page="request" data-station="ST05">
+    <div class="shell slim">
+      <section class="panel stack wide">
+        <h1>ST05 Inventory Request</h1>
+        <p class="subtitle">Submit requested inventory for this station.</p>
+        <form id="request-form" class="stack compact">
+          <input type="hidden" name="stationCode" value="ST05" />
+          <label>Requested by<input name="requesterName" required placeholder="Name" /></label>
+          <label>Inventory item<select name="item1" class="request-item"></select></label>
+          <label>Quantity<input name="qty1" type="number" min="0" value="0" /></label>
+          <label>Inventory item<select name="item2" class="request-item"></select></label>
+          <label>Quantity<input name="qty2" type="number" min="0" value="0" /></label>
+          <label>Inventory item<select name="item3" class="request-item"></select></label>
+          <label>Quantity<input name="qty3" type="number" min="0" value="0" /></label>
+          <label>Other items / notes<input name="otherItems" placeholder="Type anything not listed" /></label>
+          <button type="submit">Submit request</button>
+        </form>
+      </section>
+    </div>
+    <div id="toast"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
