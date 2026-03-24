@@ -205,6 +205,91 @@ export async function addItem(request, env) {
   }
 }
 
+export async function updateItem(request, env) {
+  const body = await parseBody(request);
+  const itemId = Number.parseInt(body?.itemId, 10);
+  if (!Number.isInteger(itemId) || itemId <= 0) return badRequest('itemId is required');
+
+  const item = await env.DB.prepare('SELECT * FROM items WHERE id = ? AND deleted_at IS NULL').bind(itemId).first();
+  if (!item) return badRequest('Item not found', 404);
+
+  const name = String(body?.name || '').trim();
+  const sku = String(body?.sku || '').trim();
+  const qrCode = String(body?.qrCode || '').trim();
+  const description = String(body?.description || '').trim();
+  const performedBy = String(body?.performedBy || 'Main Page Edit').trim() || 'Main Page Edit';
+  const barcodes = parseBarcodes(body);
+  const primaryBarcode = barcodes[0] || '';
+
+  const totalQuantity = Number.parseInt(body?.totalQuantity, 10);
+  const lowStockLevel = Number.parseInt(body?.lowStockLevel, 10);
+  const unitCost = Number.parseFloat(body?.unitCost);
+
+  if (!name) return badRequest('name is required');
+  if (!sku) return badRequest('sku is required');
+  if (!qrCode) return badRequest('qrCode is required');
+  if (Number.isNaN(totalQuantity) || totalQuantity < 0) return badRequest('totalQuantity must be a positive number or 0');
+  if (Number.isNaN(lowStockLevel) || lowStockLevel < 0) return badRequest('lowStockLevel must be a positive number or 0');
+  if (Number.isNaN(unitCost) || unitCost < 0) return badRequest('unitCost must be a positive number or 0');
+
+  const quantityDelta = totalQuantity - Number.parseInt(item.total_quantity || 0, 10);
+
+  try {
+    const operations = [
+      env.DB.prepare(`
+        UPDATE items
+        SET name = ?,
+            sku = ?,
+            qr_code = ?,
+            barcode = NULLIF(?, ''),
+            description = NULLIF(?, ''),
+            unit_cost = ?,
+            low_stock_level = ?,
+            total_quantity = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(name, sku, qrCode, primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
+      env.DB.prepare('DELETE FROM item_barcodes WHERE item_id = ?').bind(itemId),
+      ...barcodes.map((barcode) => env.DB.prepare(`
+        INSERT INTO item_barcodes (item_id, barcode)
+        VALUES (?, ?)
+      `).bind(itemId, barcode)),
+    ];
+
+    if (quantityDelta !== 0) {
+      operations.push(env.DB.prepare(`
+        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by, created_at)
+        VALUES (?, NULL, ?, 'adjustment', 'manual', ?, ?, CURRENT_TIMESTAMP)
+      `).bind(itemId, quantityDelta, 'Quantity changed from item modify popup.', performedBy));
+    }
+
+    await env.DB.batch(operations);
+  } catch (error) {
+    return badRequest(error.message.includes('UNIQUE') ? 'Item SKU, each barcode, and QR code must be unique.' : error.message);
+  }
+
+  const updatedItem = await env.DB.prepare(`
+    SELECT
+      i.*,
+      COALESCE((
+        SELECT json_group_array(ib.barcode)
+        FROM item_barcodes ib
+        WHERE ib.item_id = i.id
+        ORDER BY ib.id
+      ), '[]') AS barcodes_json
+    FROM items i
+    WHERE i.id = ?
+  `).bind(itemId).first();
+
+  return json({
+    ok: true,
+    item: {
+      ...updatedItem,
+      barcodes: JSON.parse(updatedItem?.barcodes_json || '[]').filter(Boolean),
+    },
+  });
+}
+
 export async function adjustInventory(request, env) {
   const body = await parseBody(request);
   const qty = Number.parseInt(body?.quantity, 10);
