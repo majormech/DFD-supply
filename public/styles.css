@@ -168,3 +168,57 @@ button.danger {
 .checkbox-label input[type='checkbox'] {
   width: auto;
 }
+
+.station-status-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.station-status {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.station-status--open {
+  border-color: #bf2222;
+  background: #ffe7e7;
+}
+
+.station-status--clear {
+  border-color: #14994f;
+  background: #e8fff1;
+}
+
+.station-status__toggle {
+  width: 100%;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 12px;
+}
+
+.station-status__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.station-status__panel {
+  padding: 0 12px 12px;
+}
+
+.station-status__requests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.station-status__request {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
+}
