@@ -252,6 +252,12 @@ function renderMain() {
         <td>${item.total_quantity}</td>
         <td>${currency(item.unit_cost)}</td>
         <td>
+        <button
+            type="button"
+            class="success"
+            data-action="modify-item"
+            data-item-id="${item.id}"
+          >Modify</button>
           <button
             type="button"
             class="danger"
@@ -267,6 +273,12 @@ function renderMain() {
   table.querySelectorAll('[data-action="delete-item"]').forEach((button) => {
     button.addEventListener('click', () => {
       openDeletePrompt(button.dataset.itemId, button.dataset.itemName).catch((error) => showToast(error.message, true));
+    });
+  });
+
+  table.querySelectorAll('[data-action="modify-item"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openModifyPrompt(button.dataset.itemId).catch((error) => showToast(error.message, true));
     });
   });
 
@@ -388,6 +400,155 @@ async function openDeletePrompt(itemId, itemName) {
       await loadBootstrap();
       renderMain();
       showTimedPopup('Item has been deleted/removed from the inventory system.', 5000);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+
+function buildChangeSummary(originalItem, nextItem) {
+  const changes = [];
+  const pushChange = (label, from, to) => {
+    if (String(from ?? '') === String(to ?? '')) return;
+    changes.push({ label, from: String(from ?? '—') || '—', to: String(to ?? '—') || '—' });
+  };
+
+  pushChange('Item name', originalItem.name, nextItem.name);
+  pushChange('SKU', originalItem.sku, nextItem.sku);
+  pushChange('QR code', originalItem.qr_code, nextItem.qrCode);
+  pushChange('Barcodes', (originalItem.barcodes || []).join(', '), nextItem.barcodes.join(', '));
+  pushChange('Minimum par/restock level', originalItem.low_stock_level, nextItem.lowStockLevel);
+  pushChange('Current stock level', originalItem.total_quantity, nextItem.totalQuantity);
+  pushChange('Unit cost', Number(originalItem.unit_cost || 0).toFixed(2), Number(nextItem.unitCost || 0).toFixed(2));
+
+  return changes;
+}
+
+async function openModifyPrompt(itemId) {
+  const item = state.items.find((entry) => Number(entry.id) === Number(itemId));
+  if (!item) {
+    showToast('Unable to find the selected item.', true);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Modify Item</h3>
+      <p class="helper">Review and edit item details below.</p>
+      <label>Item name
+        <input type="text" name="name" value="${escapeHtml(item.name)}" required />
+      </label>
+      <label>SKU
+        <input type="text" name="sku" value="${escapeHtml(item.sku)}" required />
+      </label>
+      <label>Item QR code
+        <input type="text" name="qrCode" value="${escapeHtml(item.qr_code || '')}" required />
+      </label>
+      <label>Barcodes (comma separated list)
+        <input type="text" name="barcodes" value="${escapeHtml((item.barcodes || []).join(', '))}" />
+      </label>
+      <label>Minimum par/restock level
+        <input type="number" min="0" step="1" name="lowStockLevel" value="${item.low_stock_level}" required />
+      </label>
+      <label>Current stock level
+        <input type="number" min="0" step="1" name="totalQuantity" value="${item.total_quantity}" required />
+      </label>
+      <label>Unit cost
+        <input type="number" min="0" step="0.01" name="unitCost" value="${item.unit_cost}" required />
+      </label>
+      <label>Description
+        <input type="text" name="description" value="${escapeHtml(item.description || '')}" />
+      </label>
+      <label>Edited by
+        <input type="text" name="performedBy" value="Main Page User" required />
+      </label>
+      <div class="modify-summary hidden" data-role="summary"></div>
+      <div class="scanner-modal__actions">
+        <button type="button" class="danger" data-action="cancel">Cancel edit</button>
+        <button type="button" class="success" data-action="submit">Submit</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const submitButton = overlay.querySelector('[data-action="submit"]');
+  const summaryNode = overlay.querySelector('[data-role="summary"]');
+  let preparedPayload = null;
+
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  submitButton.addEventListener('click', async () => {
+    const payload = Object.fromEntries(
+      [...overlay.querySelectorAll('input[name]')].map((input) => [input.name, input.value])
+    );
+    const nextItem = {
+      ...payload,
+      barcodes: String(payload.barcodes || '').split(',').map((value) => value.trim()).filter(Boolean),
+      lowStockLevel: Number.parseInt(payload.lowStockLevel, 10),
+      totalQuantity: Number.parseInt(payload.totalQuantity, 10),
+      unitCost: Number.parseFloat(payload.unitCost),
+    };
+
+    if (!nextItem.name || !nextItem.sku || !nextItem.qrCode || !nextItem.performedBy) {
+      showToast('Name, SKU, QR code, and Edited by are required.', true);
+      return;
+    }
+    if ([nextItem.lowStockLevel, nextItem.totalQuantity].some((value) => Number.isNaN(value) || value < 0)) {
+      showToast('Stock levels must be 0 or greater.', true);
+      return;
+    }
+    if (Number.isNaN(nextItem.unitCost) || nextItem.unitCost < 0) {
+      showToast('Unit cost must be 0 or greater.', true);
+      return;
+    }
+
+    if (!preparedPayload) {
+      const changes = buildChangeSummary(item, nextItem);
+      if (!changes.length) {
+        showToast('No changes detected for this item.', true);
+        return;
+      }
+
+      summaryNode.classList.remove('hidden');
+      summaryNode.innerHTML = `
+        <h4>Summary of changes</h4>
+        <ul>
+          ${changes.map((change) => `<li><strong>${escapeHtml(change.label)}:</strong> ${escapeHtml(change.from)} → ${escapeHtml(change.to)}</li>`).join('')}
+        </ul>
+        <p class="helper">Click submit again to confirm and save these changes.</p>
+      `;
+      submitButton.textContent = 'Submit again to confirm';
+      preparedPayload = nextItem;
+      return;
+    }
+
+    try {
+      await fetchJson('/api/items', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemId: item.id,
+          name: preparedPayload.name,
+          sku: preparedPayload.sku,
+          qrCode: preparedPayload.qrCode,
+          barcodes: preparedPayload.barcodes.join(', '),
+          lowStockLevel: preparedPayload.lowStockLevel,
+          totalQuantity: preparedPayload.totalQuantity,
+          unitCost: preparedPayload.unitCost,
+          description: preparedPayload.description,
+          performedBy: preparedPayload.performedBy,
+        }),
+      });
+      close();
+      await loadBootstrap();
+      renderMain();
+      showTimedPopup('Item changes have been saved.', 5000);
     } catch (error) {
       showToast(error.message, true);
     }
