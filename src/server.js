@@ -30,6 +30,15 @@ function parseBarcodes(body) {
   return [...new Set(splitValues)];
 }
 
+function generateSku(body) {
+  const provided = String(body?.sku || '').trim();
+  if (provided) return provided;
+  const qrPart = String(body?.qrCode || '').trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10);
+  const namePart = String(body?.name || '').trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+  const stamp = Date.now().toString().slice(-6);
+  return `${(namePart || 'ITEM')}-${(qrPart || 'QR')}-${stamp}`;
+}
+
 export async function bootstrapData(db) {
   const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
@@ -42,6 +51,7 @@ export async function bootstrapData(db) {
         i.qr_code,
         i.description,
         i.unit_cost,
+        i.low_stock_level,
         i.total_quantity,
         i.updated_at,
         COALESCE((
@@ -141,26 +151,48 @@ async function ensureStationRow(db, stationId, itemId) {
 
 export async function addItem(request, env) {
   const body = await parseBody(request);
-  if (!body?.name || !body?.sku) return badRequest('name and sku are required');
+  if (!body?.name || !body?.qrCode) return badRequest('name and qrCode are required');
   const barcodes = parseBarcodes(body);
+  const skipBarcodeCapture = String(body?.skipBarcodeCapture || 'true') === 'true';
+  if (!skipBarcodeCapture && !barcodes.length) {
+    return badRequest('Provide at least one barcode or enable skip barcode scan.');
+  }
   const primaryBarcode = barcodes[0] || '';
   const qty = Number.parseInt(body.totalQuantity ?? 0, 10);
-  const unitCost = Number.parseFloat(body.unitCost ?? 0);
+  const unitCost = body.unitCost === '' || body.unitCost == null ? 0 : Number.parseFloat(body.unitCost);
+  const lowStockLevel = Number.parseInt(body.lowStockLevel ?? 0, 10);
+  const performedBy = String(body.performedBy || '').trim();
+  const performedAtRaw = String(body.performedAt || '').trim();
+  const performedAt = performedAtRaw ? performedAtRaw.replace('T', ' ') : null;
+  const sku = generateSku(body);
   if (Number.isNaN(qty) || qty < 0) return badRequest('totalQuantity must be a positive number or 0');
   if (Number.isNaN(unitCost) || unitCost < 0) return badRequest('unitCost must be a positive number or 0');
-
+  if (Number.isNaN(lowStockLevel) || lowStockLevel < 0) return badRequest('lowStockLevel must be a positive number or 0');
+  if (!performedBy) return badRequest('performedBy is required');
+  
   try {
     const inserted = await env.DB.prepare(`
-      INSERT INTO items (name, sku, barcode, qr_code, description, unit_cost, total_quantity, updated_at)
-      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, CURRENT_TIMESTAMP)
+       INSERT INTO items (name, sku, barcode, qr_code, description, unit_cost, low_stock_level, total_quantity, updated_at)
+      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, CURRENT_TIMESTAMP)
       RETURNING *
-    `).bind(body.name.trim(), body.sku.trim(), primaryBarcode, body.qrCode ?? '', body.description ?? '', unitCost, qty).first();
+    `).bind(body.name.trim(), sku, primaryBarcode, body.qrCode ?? '', body.description ?? '', unitCost, lowStockLevel, qty).first();
 
+    const operations = [];
+    
     if (barcodes.length) {
-      await env.DB.batch(barcodes.map((barcode) => env.DB.prepare(`
+     operations.push(...barcodes.map((barcode) => env.DB.prepare(`
         INSERT INTO item_barcodes (item_id, barcode)
         VALUES (?, ?)
       `).bind(inserted.id, barcode)));
+    }
+
+    operations.push(env.DB.prepare(`
+      INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by, created_at)
+      VALUES (?, NULL, ?, 'restock', 'manual', NULLIF(?, ''), ?, COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP))
+    `).bind(inserted.id, qty, body.note ?? '', performedBy, performedAt || ''));
+
+    if (operations.length) {
+      await env.DB.batch(operations);
     }
 
     return json({ item: { ...inserted, barcodes } }, { status: 201 });
