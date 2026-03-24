@@ -307,6 +307,27 @@ function renderMain() {
       button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
     });
   });
+  
+  const shoppingListPanel = document.querySelector('#shopping-list-panel');
+  const shoppingListContent = document.querySelector('#shopping-list-content');
+  if (!shoppingListPanel || !shoppingListContent) return;
+
+  const lowStockItems = state.items.filter((item) => item.total_quantity < item.low_stock_level);
+  shoppingListPanel.classList.toggle('shopping-list--alert', lowStockItems.length > 0);
+  shoppingListPanel.classList.toggle('shopping-list--clear', lowStockItems.length === 0);
+
+  shoppingListContent.innerHTML = lowStockItems.length
+    ? `
+      <ul class="shopping-list__items">
+        ${lowStockItems.map((item) => `
+          <li class="shopping-list__item">
+            <strong>${escapeHtml(item.name)}</strong>
+            <span>Current stock: ${item.total_quantity} (minimum: ${item.low_stock_level})</span>
+          </li>
+        `).join('')}
+      </ul>
+    `
+    : '<p class="helper">Nothing to purchase right now. All inventory is at or above minimum levels.</p>';
 }
 
 async function openDeletePrompt(itemId, itemName) {
