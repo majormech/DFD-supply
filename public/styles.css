@@ -94,6 +94,12 @@ button.ghost {
   gap: 8px;
 }
 
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .scanner-modal {
   position: fixed;
   inset: 0;
