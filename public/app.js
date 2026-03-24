@@ -703,7 +703,15 @@ function openIssueItemsModal(stationId) {
           }),
         });
       }
-
+await fetchJson('/api/requests/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stationId: station.id,
+          completedBy: issuedBy,
+        }),
+      });
+    
       window.localStorage.setItem(lastIssuerKey, issuedBy);
       close();
       await loadBootstrap();
@@ -940,115 +948,213 @@ function findItemByCode(code) {
   });
 }
 
-function applyScannedRequestItem(code, itemSelects, qtyInputs) {
-  const item = findItemByCode(code);
-  if (!item) {
-    showToast('No matching inventory item for that code.', true);
+function renderRecentStationRequests(stationCode) {
+  const target = document.querySelector('#recent-requests');
+  if (!target) return;
+  const station = state.stations.find((entry) => entry.code === stationCode);
+  if (!station) return;
+  const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  const requests = state.stationRequests
+    .filter((request) => Number(request.station_id) === Number(station.id))
+    .filter((request) => new Date(request.created_at).getTime() >= cutoff)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  if (!requests.length) {
+    target.innerHTML = '<p class="helper">No requests for this station in the past 30 days.</p>';
     return;
   }
-
-  const existingIndex = itemSelects.findIndex((select) => String(select.value) === String(item.id));
-  if (existingIndex >= 0) {
-    const qtyInput = qtyInputs[existingIndex];
-    qtyInput.value = String(Math.max(0, Number.parseInt(qtyInput.value || '0', 10)) + 1);
-    showToast(`Added 1 more ${item.name} to this request.`);
-    return;
-  }
-
-  const emptyIndex = itemSelects.findIndex((select) => !select.value);
-  if (emptyIndex < 0) {
-    showToast('All request item slots are already in use.', true);
-    return;
-  }
-
-  itemSelects[emptyIndex].value = String(item.id);
-  qtyInputs[emptyIndex].value = String(Math.max(1, Number.parseInt(qtyInputs[emptyIndex].value || '0', 10)));
-  showToast(`${item.name} added to request.`);
+  
+target.innerHTML = requests.map((request) => {
+    const completed = Boolean(request.completed_at);
+    const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+    return `
+      <article class="request-history-card ${completed ? 'request-history-card--complete' : 'request-history-card--pending'}">
+        <strong>${completed ? 'Completed request' : 'Pending request'}</strong>
+        <ul>
+          ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
+        </ul>
+        <p class="helper">Requested: ${new Date(request.created_at).toLocaleString()} · by ${escapeHtml(request.requester_name)}</p>
+        ${completed
+          ? `<p class="helper">Completed: ${new Date(request.completed_at).toLocaleString()} · by ${escapeHtml(request.completed_by || 'Unknown')}</p>`
+          : '<p class="helper">Completion: still pending</p>'}
+      </article>
+    `;
+  }).join('');
 }
 
-function setupRequestScanner(form, itemSelects, qtyInputs) {
-  if (!form || form.querySelector('.scan-request-tools')) return;
-
-  const tools = document.createElement('section');
-  tools.className = 'scan-request-tools stack compact';
-  tools.innerHTML = `
-    <h3>Scan item code</h3>
-    <p class="helper">Scan a barcode/QR code or paste a code to auto-fill request items.</p>
-    <div class="scan-request-tools__row">
-      <label>Code
-        <input type="text" name="scanCodeInput" placeholder="Scan or type code" />
+function openRequestItemModal(stationCode) {
+  const addedItems = [];
+  let activeItem = null;
+  let scannedCode = '';
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Request inventory item</h3>
+      <label>Requested by
+        <input type="text" name="requesterName" placeholder="Name" required />
       </label>
-      <div class="scan-request-tools__actions">
-        <button type="button" data-action="apply">Use code</button>
-        <button type="button" data-action="camera" class="secondary">Scan with camera</button>
+      <label class="checkbox-label">
+        <input type="checkbox" name="noCode" />
+        I do not have the QR code or barcode
+      </label>
+      <div data-role="scanBlock" class="stack compact">
+        <button type="button" class="secondary" data-action="scan">Scan QR or barcode</button>
       </div>
+      <label data-role="pickerBlock" class="hidden">Select inventory item
+        <select name="manualItem">${itemOptions(state.items)}</select>
+      </label>
+      <div data-role="itemInfo" class="restock-item-summary hidden"></div>
+      <label>Amount requesting
+        <input type="number" min="1" value="1" name="requestQty" />
+      </label>
+      <div class="inline-actions">
+        <button type="button" data-action="add">Add item</button>
+        <button type="button" data-action="submit" class="secondary">Submit request</button>
+      </div>
+      <button type="button" data-action="cancel" class="danger">Cancel</button>
+      <div data-role="cancelConfirm" class="hidden restock-followup stack compact">
+        <p>Canceling request.</p>
+        <div class="inline-actions">
+          <button type="button" data-action="goBack" class="request-success">Go back to request</button>
+          <button type="button" data-action="confirmCancel" class="danger">Yes cancel the request</button>
+        </div>
+      </div>
+      <div data-role="requestItems" class="stack compact"></div>
     </div>
   `;
+  document.body.appendChild(overlay);
 
-  form.insertBefore(tools, form.children[2] || null);
+   const close = () => overlay.remove();
+  const requesterInput = overlay.querySelector('input[name="requesterName"]');
+  const noCodeInput = overlay.querySelector('input[name="noCode"]');
+  const pickerBlock = overlay.querySelector('[data-role="pickerBlock"]');
+  const scanBlock = overlay.querySelector('[data-role="scanBlock"]');
+  const manualItemSelect = overlay.querySelector('select[name="manualItem"]');
+  const itemInfo = overlay.querySelector('[data-role="itemInfo"]');
+  const qtyInput = overlay.querySelector('input[name="requestQty"]');
+  const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
+  const cancelConfirm = overlay.querySelector('[data-role="cancelConfirm"]');
 
-  const codeInput = tools.querySelector('input[name="scanCodeInput"]');
-  const applyButton = tools.querySelector('[data-action="apply"]');
-  const cameraButton = tools.querySelector('[data-action="camera"]');
+  const renderAddedItems = () => {
+    requestItemsEl.innerHTML = addedItems.length
+      ? `<strong>Items in request</strong><ul>${addedItems.map((entry) => `<li>${escapeHtml(entry.name)}: ${entry.quantity}</li>`).join('')}</ul>`
+      : '<p class="helper">No items added yet.</p>';
+  };
 
-  applyButton.addEventListener('click', () => {
-    const code = codeInput.value.trim();
-    if (!code) {
-      showToast('Enter or scan a code first.', true);
+  const updateActiveItemDisplay = () => {
+    if (!activeItem) {
+      itemInfo.classList.add('hidden');
+      itemInfo.innerHTML = '';
       return;
     }
-    applyScannedRequestItem(code, itemSelects, qtyInputs);
-    codeInput.value = '';
+    itemInfo.classList.remove('hidden');
+    itemInfo.innerHTML = `
+      <strong>${escapeHtml(activeItem.name)}</strong>
+      <p class="helper">SKU: ${escapeHtml(activeItem.sku)} · On hand: ${activeItem.total_quantity}</p>
+      ${scannedCode ? `<p class="helper">Scanned code: ${escapeHtml(scannedCode)}</p>` : ''}
+    `;
+  };
+
+  renderAddedItems();
+
+  noCodeInput.addEventListener('change', () => {
+    const useDropdown = noCodeInput.checked;
+    pickerBlock.classList.toggle('hidden', !useDropdown);
+    scanBlock.classList.toggle('hidden', useDropdown);
+    activeItem = null;
+    scannedCode = '';
+    manualItemSelect.value = '';
+    updateActiveItemDisplay();
   });
 
-  cameraButton.addEventListener('click', async () => {
+  overlay.querySelector('[data-action="scan"]').addEventListener('click', async () => {
     try {
-      const code = await scanCodeWithCamera('Scan item for request');
-      codeInput.value = code;
-      applyScannedRequestItem(code, itemSelects, qtyInputs);
-      codeInput.value = '';
+      scannedCode = await scanCodeWithCamera('Scan request item');
+      const response = await fetchJson(`/api/scan?code=${encodeURIComponent(scannedCode)}`);
+      activeItem = response.item || null;
+      updateActiveItemDisplay();
     } catch (error) {
       showToast(error.message, true);
     }
   });
-}
 
-async function wireRequestPage() {
-  const form = document.querySelector('#request-form');
-  const itemSelects = [...document.querySelectorAll('.request-item')];
- const qtyInputs = [1, 2, 3].map((index) => form?.querySelector(`input[name="qty${index}"]`)).filter(Boolean);
-  itemSelects.forEach((el) => {
-    el.innerHTML = itemOptions(state.items);
+  manualItemSelect.addEventListener('change', () => {
+    activeItem = state.items.find((item) => String(item.id) === String(manualItemSelect.value)) || null;
+    scannedCode = '';
+    updateActiveItemDisplay();
   });
 
- setupRequestScanner(form, itemSelects, qtyInputs);
+  overlay.querySelector('[data-action="add"]').addEventListener('click', () => {
+    if (!activeItem) {
+      showToast('Select or scan an inventory item first.', true);
+      return;
+    }
+    const qty = Number.parseInt(qtyInput.value || '0', 10);
+    if (!qty || qty <= 0) {
+      showToast('Enter a valid quantity.', true);
+      return;
+    }
+    const existing = addedItems.find((item) => item.name === activeItem.name);
+    if (existing) existing.quantity += qty;
+    else addedItems.push({ name: activeItem.name, quantity: qty });
+    qtyInput.value = '1';
+    activeItem = null;
+    scannedCode = '';
+    manualItemSelect.value = '';
+    updateActiveItemDisplay();
+    renderAddedItems();
+    showToast('Item added to request.');
+  });
 
-  form?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const raw = formToPayload(form);
-    const items = [1, 2, 3].map((i) => {
-      const id = raw[`item${i}`];
-      const qty = raw[`qty${i}`];
-      const item = state.items.find((entry) => String(entry.id) === String(id));
-      return item ? { name: item.name, quantity: qty } : null;
-    }).filter(Boolean);
-
+  overlay.querySelector('[data-action="submit"]').addEventListener('click', async () => {
+    const requesterName = requesterInput.value.trim();
+    if (!requesterName) {
+      showToast('Enter who is sending the request.', true);
+      return;
+    }
+    if (!addedItems.length) {
+      showToast('Add at least one item before submitting.', true);
+      return;
+    }
     try {
       await fetchJson('/api/requests', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          stationCode: raw.stationCode,
-          requesterName: raw.requesterName,
-          otherItems: raw.otherItems,
-          items,
+          stationCode,
+          requesterName,
+          items: addedItems,
+          otherItems: '',
         }),
       });
-      form.reset();
+      close();
+      await loadBootstrap();
+      renderRecentStationRequests(stationCode);
       showToast('Request submitted to supply officer.');
     } catch (error) {
       showToast(error.message, true);
     }
+  });
+
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+    cancelConfirm.classList.remove('hidden');
+  });
+  overlay.querySelector('[data-action="goBack"]').addEventListener('click', () => {
+    cancelConfirm.classList.add('hidden');
+  });
+  overlay.querySelector('[data-action="confirmCancel"]').addEventListener('click', close);
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+}
+
+async function wireRequestPage() {
+  const stationCode = document.body.dataset.station;
+  renderRecentStationRequests(stationCode);
+  document.querySelector('#open-request-modal')?.addEventListener('click', () => {
+    openRequestItemModal(stationCode);
   });
 }
 
