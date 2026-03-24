@@ -451,8 +451,8 @@ export async function createStationRequest(request, env) {
 export async function deleteItem(request, env) {
   const body = await parseBody(request);
   const itemId = Number.parseInt(body?.itemId, 10);
-  const performedBy = String(body?.performedBy || '').trim();
   const employeeOrDepartment = String(body?.employeeOrDepartment || '').trim();
+  const performedBy = String(body?.performedBy || employeeOrDepartment).trim();
   const confirmed = String(body?.confirmed || '').toLowerCase() === 'true';
 
   if (!Number.isInteger(itemId) || itemId <= 0) return badRequest('itemId is required');
