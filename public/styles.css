@@ -222,3 +222,65 @@ button.danger {
   padding: 8px;
   background: #fff;
 }
+
+.issue-station-listing {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.issue-station-listing--open {
+  border-color: #bf2222;
+  background: #ffe7e7;
+}
+
+.issue-station-listing--clear {
+  border-color: #14994f;
+  background: #e8fff1;
+}
+
+.issue-station-listing__header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.issue-station-listing__toggle {
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  padding: 0;
+}
+
+.issue-station-listing__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.issue-station-listing__panel {
+  padding: 0 12px 12px;
+}
+
+.issue-request-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.issue-row {
+  display: grid;
+  grid-template-columns: 26px 1fr 140px 130px;
+  gap: 8px;
+  align-items: center;
+}
+
+.issue-row + .issue-row {
+  margin-top: 8px;
+}
+
+.issue-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
