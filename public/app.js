@@ -6,6 +6,12 @@ const state = {
   stationRequests: [],
   mainSearchTerm: '',
   recentTransactions: [],
+  analytics: {
+    byItem: [],
+    byStation: [],
+    trend: [],
+    transactions: [],
+  },
 };
 
 const toast = document.querySelector('#toast');
@@ -1214,33 +1220,185 @@ async function wireRestockForm() {
 }
 
 function renderAnalytics(data) {
+  state.analytics = {
+    byItem: data.byItem || [],
+    byStation: data.byStation || [],
+    trend: data.trend || [],
+    transactions: data.transactions || [],
+  };
+
   const byItem = document.querySelector('#by-item');
-  byItem.innerHTML = data.byItem.length
-    ? data.byItem.map((row) => `<tr><td>${row.name} (${row.sku})</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
+  byItem.innerHTML = state.analytics.byItem.length
+    ? state.analytics.byItem.map((row) => `<tr><td>${row.name} (${row.sku})</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
     : '<tr><td colspan="3">No usage in selected period.</td></tr>';
 
   const byStation = document.querySelector('#by-station');
-  byStation.innerHTML = data.byStation.length
-    ? data.byStation.map((row) => `<tr><td>${row.station_name}</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
+  byStation.innerHTML = state.analytics.byStation.length
+    ? state.analytics.byStation.map((row) => `<tr><td>${row.station_name}</td><td>${row.used_qty || 0}</td><td>${currency(row.used_cost)}</td></tr>`).join('')
     : '<tr><td colspan="3">No station usage in selected period.</td></tr>';
 
   const trend = document.querySelector('#trend-bars');
-  const maxCost = Math.max(1, ...data.trend.map((row) => Number(row.used_cost || 0)));
-  trend.innerHTML = data.trend.length
-    ? data.trend.map((row) => {
+  const maxCost = Math.max(1, ...state.analytics.trend.map((row) => Number(row.used_cost || 0)));
+  trend.innerHTML = state.analytics.trend.length
+    ? state.analytics.trend.map((row) => {
       const width = Math.max(2, Math.round((Number(row.used_cost || 0) / maxCost) * 100));
       return `<div class="trend-row"><span>${row.day}</span><div class="trend-bar"><i style="width:${width}%"></i></div><strong>${currency(row.used_cost)}</strong></div>`;
     }).join('')
     : '<p class="helper">No trend data in selected period.</p>';
+
+   const txTable = document.querySelector('#usage-transactions');
+  if (txTable) {
+    txTable.innerHTML = state.analytics.transactions.length
+      ? state.analytics.transactions.map((row) => `
+        <tr>
+          <td>${new Date(row.created_at).toLocaleString()}</td>
+          <td>${row.station_name || 'Unassigned'}</td>
+          <td>${row.item_name}</td>
+          <td>${row.item_sku}</td>
+          <td>${row.used_qty || 0}</td>
+          <td>${currency(row.unit_cost)}</td>
+          <td>${currency(row.used_cost)}</td>
+          <td>${escapeHtml(row.performed_by || '')}</td>
+          <td>${escapeHtml(row.source || '')}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="9">No usage transactions in selected period.</td></tr>';
+  }
+}
+
+function buildDelimited(rows, delimiter = ',') {
+  const escapeValue = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  return rows.map((row) => row.map((value) => (delimiter === '\t' ? String(value ?? '') : escapeValue(value))).join(delimiter)).join('\n');
+}
+
+function downloadBlob(filename, blob) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1500);
+}
+
+function exportAnalytics(format) {
+  const headers = ['Date', 'Station', 'Item', 'SKU', 'Qty Used', 'Unit Cost', 'Cost Used', 'Performed By', 'Source'];
+  const rows = state.analytics.transactions.map((row) => [
+    new Date(row.created_at).toLocaleString(),
+    row.station_name || 'Unassigned',
+    row.item_name,
+    row.item_sku,
+    row.used_qty || 0,
+    Number(row.unit_cost || 0).toFixed(2),
+    Number(row.used_cost || 0).toFixed(2),
+    row.performed_by || '',
+    row.source || '',
+  ]);
+  const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
+
+  if (!rows.length) {
+    showToast('No data to export for current filters.', true);
+    return;
+  }
+
+  if (format === 'csv') {
+    downloadBlob(`usage-report-${stamp}.csv`, new Blob([buildDelimited([headers, ...rows], ',')], { type: 'text/csv;charset=utf-8' }));
+    return;
+  }
+  if (format === 'tsv') {
+    downloadBlob(`usage-report-${stamp}.tsv`, new Blob([buildDelimited([headers, ...rows], '\t')], { type: 'text/tab-separated-values;charset=utf-8' }));
+    return;
+  }
+  if (format === 'json') {
+    downloadBlob(`usage-report-${stamp}.json`, new Blob([JSON.stringify(state.analytics.transactions, null, 2)], { type: 'application/json;charset=utf-8' }));
+    return;
+  }
+  if (format === 'xlsx') {
+    const tableRows = [headers, ...rows].map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+    const content = `<!doctype html><html><head><meta charset="utf-8" /></head><body><table>${tableRows}</table></body></html>`;
+    downloadBlob(`usage-report-${stamp}.xlsx`, new Blob([content], { type: 'application/vnd.ms-excel' }));
+    return;
+  }
+  if (format === 'pdf') {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast('Popup blocked. Allow popups to export PDF.', true);
+      return;
+    }
+    const tableRows = [headers, ...rows].map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+      <head>
+        <title>Usage Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 16px; }
+          table { border-collapse: collapse; width: 100%; font-size: 12px; }
+          th, td { border: 1px solid #d7e0ea; padding: 6px; text-align: left; }
+          h1 { margin-top: 0; }
+        </style>
+      </head>
+      <body>
+        <h1>Usage Report</h1>
+        <table>
+          <thead><tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
 }
 
 async function wireSearchPage() {
   const select = document.querySelector('#days-select');
+  const searchInput = document.querySelector('#analytics-search');
+  const stationSelect = document.querySelector('#analytics-station');
+  const itemSelect = document.querySelector('#analytics-item');
+  const startDateInput = document.querySelector('#analytics-start-date');
+  const endDateInput = document.querySelector('#analytics-end-date');
+  const summary = document.querySelector('#analytics-summary');
+  const applyButton = document.querySelector('#analytics-apply');
+  const resetButton = document.querySelector('#analytics-reset');
+  const exportButton = document.querySelector('#analytics-export');
+  const exportFormat = document.querySelector('#analytics-export-format');
+
+  stationSelect.innerHTML = ['<option value="">All stations</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
+  itemSelect.innerHTML = ['<option value="">All items</option>', ...state.items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} (${escapeHtml(item.sku)})</option>`)].join('');
+  
   const load = async () => {
-    const data = await fetchJson(`/api/analytics?days=${encodeURIComponent(select.value)}`);
+     const params = new URLSearchParams({ days: select.value });
+    if (searchInput.value.trim()) params.set('search', searchInput.value.trim());
+    if (stationSelect.value) params.set('stationId', stationSelect.value);
+    if (itemSelect.value) params.set('itemId', itemSelect.value);
+    if (startDateInput.value) params.set('startDate', startDateInput.value);
+    if (endDateInput.value) params.set('endDate', endDateInput.value);
+    const data = await fetchJson(`/api/analytics?${params.toString()}`);
     renderAnalytics(data);
+     if (summary) {
+      summary.textContent = `Showing ${data.transactions?.length || 0} usage transactions.`;
+    }
   };
-  select.addEventListener('change', () => load().catch((error) => showToast(error.message, true)));
+  
+  select.addEventListener('change', () => {
+    if (startDateInput.value || endDateInput.value) return;
+    load().catch((error) => showToast(error.message, true));
+  });
+  applyButton?.addEventListener('click', () => load().catch((error) => showToast(error.message, true)));
+  resetButton?.addEventListener('click', () => {
+    searchInput.value = '';
+    stationSelect.value = '';
+    itemSelect.value = '';
+    startDateInput.value = '';
+    endDateInput.value = '';
+    select.value = '30';
+    load().catch((error) => showToast(error.message, true));
+  });
+  exportButton?.addEventListener('click', () => exportAnalytics(exportFormat.value));
+
   await load();
 }
 
