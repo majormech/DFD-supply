@@ -4,6 +4,7 @@ const state = {
   items: [],
   stations: [],
   stationRequests: [],
+  mainSearchTerm: '',
   recentTransactions: [],
 };
 
@@ -245,11 +246,33 @@ function setupAddItemScanFields(form) {
 }
 
 function renderMain() {
+  const searchInput = document.querySelector('#main-item-search');
+  if (searchInput) {
+    if (searchInput.dataset.bound !== 'true') {
+      searchInput.addEventListener('input', (event) => {
+        state.mainSearchTerm = event.target.value.trim().toLowerCase();
+        renderMain();
+      });
+      searchInput.dataset.bound = 'true';
+    }
+    if (searchInput.value !== state.mainSearchTerm) {
+      searchInput.value = state.mainSearchTerm;
+    }
+  }
+
+  const filteredItems = state.mainSearchTerm
+    ? state.items.filter((item) => {
+      const name = String(item.name || '').toLowerCase();
+      const sku = String(item.sku || '').toLowerCase();
+      return name.includes(state.mainSearchTerm) || sku.includes(state.mainSearchTerm);
+    })
+    : state.items;
+
   document.querySelector('#total-item-count').textContent = `${state.items.length} items`;
   document.querySelector('#total-stock-count').textContent = `${state.items.reduce((sum, item) => sum + item.total_quantity, 0)} total units`;
   const table = document.querySelector('#inventory-table');
-  table.innerHTML = state.items.length
-    ? state.items.map((item) => `
+  table.innerHTML = filteredItems.length
+    ? filteredItems.map((item) => `
       <tr>
         <td>${item.name}</td>
         <td>${item.sku}</td>
@@ -272,7 +295,7 @@ function renderMain() {
         </td>
       </tr>
     `).join('')
-    : '<tr><td colspan="5">No inventory items yet.</td></tr>';
+     : `<tr><td colspan="5">${state.items.length ? 'No items match your search.' : 'No inventory items yet.'}</td></tr>`;
 
   table.querySelectorAll('[data-action="delete-item"]').forEach((button) => {
     button.addEventListener('click', () => {
