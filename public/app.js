@@ -51,6 +51,10 @@ function currency(value) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 }
 
+function getActiveStationRequests() {
+  return state.stationRequests.filter((request) => !request.completed_at);
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -284,7 +288,7 @@ function renderMain() {
 
   const stationList = document.querySelector('#station-status-list');
     if (!stationList) return;
-  const requestsByStation = state.stationRequests.reduce((acc, request) => {
+    const requestsByStation = getActiveStationRequests().reduce((acc, request) => {
     if (!acc[request.station_id]) acc[request.station_id] = [];
     acc[request.station_id].push(request);
     return acc;
@@ -557,7 +561,7 @@ function renderInventoryPage() {
 function renderIssuePage() {
   const stationList = document.querySelector('#issue-station-list');
   if (!stationList) return;
-  const requestsByStation = state.stationRequests.reduce((acc, request) => {
+  const requestsByStation = getActiveStationRequests().reduce((acc, request) => {
     if (!acc[request.station_id]) acc[request.station_id] = [];
     acc[request.station_id].push(request);
     return acc;
@@ -719,7 +723,7 @@ if (!addForm) return;
 }
 
 function buildRequestedItemsForStation(stationId) {
-  const requests = state.stationRequests.filter((request) => Number(request.station_id) === Number(stationId));
+  const requests = getActiveStationRequests().filter((request) => Number(request.station_id) === Number(stationId));
   const totals = new Map();
   requests.forEach((request) => {
     const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
