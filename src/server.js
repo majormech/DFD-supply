@@ -398,18 +398,49 @@ export async function lookupScan(request, env) {
 export async function getAnalytics(request, env) {
   const url = new URL(request.url);
   const days = Math.min(Math.max(Number.parseInt(url.searchParams.get('days') || '30', 10), 7), 365);
+const stationId = Number.parseInt(url.searchParams.get('stationId') || '', 10);
+  const itemId = Number.parseInt(url.searchParams.get('itemId') || '', 10);
+  const search = (url.searchParams.get('search') || '').trim().toLowerCase();
+  const startDate = (url.searchParams.get('startDate') || '').trim();
+  const endDate = (url.searchParams.get('endDate') || '').trim();
+  const hasDateRange = Boolean(startDate || endDate);
+  const lookbackDays = `-${days} days`;
 
-  const [byItem, byStation, trend] = await Promise.all([
+  const [byItem, byStation, trend, transactions] = await Promise.all([
     env.DB.prepare(`
       SELECT i.name, i.sku,
         SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
         ROUND(SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) * i.unit_cost ELSE 0 END), 2) AS used_cost
-      FROM items i
-      LEFT JOIN stock_transactions t ON t.item_id = i.id
-      WHERE t.created_at >= datetime('now', ?)
+       FROM stock_transactions t
+      JOIN items i ON i.id = t.item_id
+      LEFT JOIN stations s ON s.id = t.station_id
+      WHERE t.quantity_delta < 0
+        AND (
+          (? = 0 AND date(t.created_at) >= date('now', ?))
+          OR (? = 1 AND (? = '' OR date(t.created_at) >= date(?)) AND (? = '' OR date(t.created_at) <= date(?)))
+        )
+        AND (? = 0 OR t.station_id = ?)
+        AND (? = 0 OR i.id = ?)
+        AND (? = '' OR lower(i.name) LIKE ? OR lower(i.sku) LIKE ? OR lower(COALESCE(s.name, '')) LIKE ?)
       GROUP BY i.id
       ORDER BY used_qty DESC, i.name COLLATE NOCASE ASC
-    `).bind(`-${days} days`).all(),
+    `).bind(
+      hasDateRange ? 1 : 0,
+      lookbackDays,
+      hasDateRange ? 1 : 0,
+      startDate,
+      startDate,
+      endDate,
+      endDate,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      search,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+    ).all(),
     env.DB.prepare(`
       SELECT COALESCE(s.name, 'Unassigned') AS station_name,
         SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
@@ -417,23 +448,124 @@ export async function getAnalytics(request, env) {
       FROM stock_transactions t
       JOIN items i ON i.id = t.item_id
       LEFT JOIN stations s ON s.id = t.station_id
-      WHERE t.created_at >= datetime('now', ?)
+      WHERE t.quantity_delta < 0
+        AND (
+          (? = 0 AND date(t.created_at) >= date('now', ?))
+          OR (? = 1 AND (? = '' OR date(t.created_at) >= date(?)) AND (? = '' OR date(t.created_at) <= date(?)))
+        )
+        AND (? = 0 OR t.station_id = ?)
+        AND (? = 0 OR i.id = ?)
+        AND (? = '' OR lower(i.name) LIKE ? OR lower(i.sku) LIKE ? OR lower(COALESCE(s.name, '')) LIKE ?)
       GROUP BY s.id
       ORDER BY used_cost DESC
-    `).bind(`-${days} days`).all(),
+    `).bind(
+      hasDateRange ? 1 : 0,
+      lookbackDays,
+      hasDateRange ? 1 : 0,
+      startDate,
+      startDate,
+      endDate,
+      endDate,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      search,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+    ).all(),
     env.DB.prepare(`
       SELECT date(t.created_at) AS day,
         SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) ELSE 0 END) AS used_qty,
         ROUND(SUM(CASE WHEN t.quantity_delta < 0 THEN ABS(t.quantity_delta) * i.unit_cost ELSE 0 END), 2) AS used_cost
       FROM stock_transactions t
       JOIN items i ON i.id = t.item_id
-      WHERE t.created_at >= datetime('now', ?)
+       LEFT JOIN stations s ON s.id = t.station_id
+      WHERE t.quantity_delta < 0
+        AND (
+          (? = 0 AND date(t.created_at) >= date('now', ?))
+          OR (? = 1 AND (? = '' OR date(t.created_at) >= date(?)) AND (? = '' OR date(t.created_at) <= date(?)))
+        )
+        AND (? = 0 OR t.station_id = ?)
+        AND (? = 0 OR i.id = ?)
+        AND (? = '' OR lower(i.name) LIKE ? OR lower(i.sku) LIKE ? OR lower(COALESCE(s.name, '')) LIKE ?)
       GROUP BY date(t.created_at)
       ORDER BY day ASC
-    `).bind(`-${days} days`).all(),
+    `).bind(
+      hasDateRange ? 1 : 0,
+      lookbackDays,
+      hasDateRange ? 1 : 0,
+      startDate,
+      startDate,
+      endDate,
+      endDate,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      search,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+    ).all(),
+    env.DB.prepare(`
+      SELECT
+        t.created_at,
+        COALESCE(s.name, 'Unassigned') AS station_name,
+        i.name AS item_name,
+        i.sku AS item_sku,
+        ABS(t.quantity_delta) AS used_qty,
+        ROUND(i.unit_cost, 2) AS unit_cost,
+        ROUND(ABS(t.quantity_delta) * i.unit_cost, 2) AS used_cost,
+        t.performed_by,
+        t.source
+      FROM stock_transactions t
+      JOIN items i ON i.id = t.item_id
+      LEFT JOIN stations s ON s.id = t.station_id
+      WHERE t.quantity_delta < 0
+        AND (
+          (? = 0 AND date(t.created_at) >= date('now', ?))
+          OR (? = 1 AND (? = '' OR date(t.created_at) >= date(?)) AND (? = '' OR date(t.created_at) <= date(?)))
+        )
+        AND (? = 0 OR t.station_id = ?)
+        AND (? = 0 OR i.id = ?)
+        AND (? = '' OR lower(i.name) LIKE ? OR lower(i.sku) LIKE ? OR lower(COALESCE(s.name, '')) LIKE ?)
+      ORDER BY t.created_at DESC, t.id DESC
+    `).bind(
+      hasDateRange ? 1 : 0,
+      lookbackDays,
+      hasDateRange ? 1 : 0,
+      startDate,
+      startDate,
+      endDate,
+      endDate,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(stationId) && stationId > 0 ? stationId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      Number.isInteger(itemId) && itemId > 0 ? itemId : 0,
+      search,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+    ).all(),
   ]);
 
-  return json({ byItem: byItem.results, byStation: byStation.results, trend: trend.results, days });
+  return json({
+    byItem: byItem.results,
+    byStation: byStation.results,
+    trend: trend.results,
+    transactions: transactions.results,
+    days,
+    filters: {
+      stationId: Number.isInteger(stationId) && stationId > 0 ? stationId : null,
+      itemId: Number.isInteger(itemId) && itemId > 0 ? itemId : null,
+      search,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      mode: hasDateRange ? 'date-range' : 'days',
+    },
+  });
 }
 
 function isAuthorizedAdmin(request, env) {
