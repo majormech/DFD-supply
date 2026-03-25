@@ -37,6 +37,9 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .txn { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: #fbfcff; }
 .stats-row { display: flex; justify-content: space-between; gap: 14px; font-size: 1.05rem; }
+.inventory-search {
+  max-width: 420px;
+}
 #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: #fff; padding: 11px 14px; border-radius: 12px; opacity: 0; transform: translateY(10px); transition: .2s ease; pointer-events: none; }
 #toast.show { opacity: 1; transform: translateY(0); }
 #trend-bars { display: flex; flex-direction: column; gap: 10px; }
