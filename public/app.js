@@ -24,7 +24,7 @@ function showTimedPopup(message, durationMs = 5000) {
   overlay.innerHTML = `
     <div class="scanner-modal__card">
       <h3>Success</h3>
-      <p>${message}</p>
+       <div>${message}</div>
       <div class="scanner-modal__actions">
         <button type="button" data-action="ok">OK</button>
       </div>
@@ -424,6 +424,15 @@ function buildChangeSummary(originalItem, nextItem) {
   return changes;
 }
 
+function renderChangeSummaryHtml(changes) {
+  return `
+    <h4>Summary of changes</h4>
+    <ul>
+      ${changes.map((change) => `<li><strong>${escapeHtml(change.label)}:</strong> ${escapeHtml(change.from)} → ${escapeHtml(change.to)}</li>`).join('')}
+    </ul>
+  `;
+}
+
 async function openModifyPrompt(itemId) {
   const item = state.items.find((entry) => Number(entry.id) === Number(itemId));
   if (!item) {
@@ -464,7 +473,6 @@ async function openModifyPrompt(itemId) {
       <label>Edited by
         <input type="text" name="performedBy" value="Main Page User" required />
       </label>
-      <div class="modify-summary hidden" data-role="summary"></div>
       <div class="scanner-modal__actions">
         <button type="button" class="danger" data-action="cancel">Cancel edit</button>
         <button type="button" class="success" data-action="submit">Submit</button>
@@ -475,8 +483,6 @@ async function openModifyPrompt(itemId) {
 
   const close = () => overlay.remove();
   const submitButton = overlay.querySelector('[data-action="submit"]');
-  const summaryNode = overlay.querySelector('[data-role="summary"]');
-  let preparedPayload = null;
 
   overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
   overlay.addEventListener('click', (event) => {
@@ -508,23 +514,9 @@ async function openModifyPrompt(itemId) {
       return;
     }
 
-    if (!preparedPayload) {
-      const changes = buildChangeSummary(item, nextItem);
-      if (!changes.length) {
-        showToast('No changes detected for this item.', true);
-        return;
-      }
-
-      summaryNode.classList.remove('hidden');
-      summaryNode.innerHTML = `
-        <h4>Summary of changes</h4>
-        <ul>
-          ${changes.map((change) => `<li><strong>${escapeHtml(change.label)}:</strong> ${escapeHtml(change.from)} → ${escapeHtml(change.to)}</li>`).join('')}
-        </ul>
-        <p class="helper">Click submit again to confirm and save these changes.</p>
-      `;
-      submitButton.textContent = 'Submit again to confirm';
-      preparedPayload = nextItem;
+    const changes = buildChangeSummary(item, nextItem);
+    if (!changes.length) {
+      showToast('No changes detected for this item.', true);
       return;
     }
 
@@ -534,21 +526,24 @@ async function openModifyPrompt(itemId) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           itemId: item.id,
-          name: preparedPayload.name,
-          sku: preparedPayload.sku,
-          qrCode: preparedPayload.qrCode,
-          barcodes: preparedPayload.barcodes.join(', '),
-          lowStockLevel: preparedPayload.lowStockLevel,
-          totalQuantity: preparedPayload.totalQuantity,
-          unitCost: preparedPayload.unitCost,
-          description: preparedPayload.description,
-          performedBy: preparedPayload.performedBy,
+          name: nextItem.name,
+          sku: nextItem.sku,
+          qrCode: nextItem.qrCode,
+          barcodes: nextItem.barcodes.join(', '),
+          lowStockLevel: nextItem.lowStockLevel,
+          totalQuantity: nextItem.totalQuantity,
+          unitCost: nextItem.unitCost,
+          description: nextItem.description,
+          performedBy: nextItem.performedBy,
         }),
       });
       close();
       await loadBootstrap();
       renderMain();
-      showTimedPopup('Item changes have been saved.', 5000);
+      showTimedPopup(`
+        Item changes have been saved.
+        ${renderChangeSummaryHtml(changes)}
+      `, 7000);
     } catch (error) {
       showToast(error.message, true);
     }
