@@ -460,7 +460,10 @@ async function openModifyPrompt(itemId) {
         <input type="text" name="qrCode" value="${escapeHtml(item.qr_code || '')}" required />
       </label>
       <label>Barcodes (comma separated list)
-        <input type="text" name="barcodes" value="${escapeHtml((item.barcodes || []).join(', '))}" />
+        <div class="input-with-action">
+          <input type="text" name="barcodes" value="${escapeHtml((item.barcodes || []).join(', '))}" />
+          <button type="button" class="secondary" data-action="scan-barcode">Scan new barcode</button>
+        </div>
       </label>
       <label>Minimum par/restock level
         <input type="number" min="0" step="1" name="lowStockLevel" value="${item.low_stock_level}" required />
@@ -487,6 +490,12 @@ async function openModifyPrompt(itemId) {
 
   const close = () => overlay.remove();
   const submitButton = overlay.querySelector('[data-action="submit"]');
+
+  const barcodesInput = overlay.querySelector('input[name="barcodes"]');
+  const scanBarcodeButton = overlay.querySelector('[data-action="scan-barcode"]');
+  if (barcodesInput && scanBarcodeButton) {
+    attachScannerButton(barcodesInput, scanBarcodeButton, 'Barcode added.', true);
+  }
 
   overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
   overlay.addEventListener('click', (event) => {
