@@ -278,6 +278,11 @@ function renderMain() {
       <tr>
         <td>${item.name}</td>
         <td>${item.sku}</td>
+        <td>
+          ${item.qr_image_url
+            ? `<img class="qr-thumb" src="${escapeHtml(item.qr_image_url)}" alt="QR code for ${escapeHtml(item.name)}" loading="lazy" />`
+            : '<span class="helper">No QR</span>'}
+        </td>
         <td>${item.total_quantity}</td>
         <td>${currency(item.unit_cost)}</td>
         <td>
@@ -297,7 +302,7 @@ function renderMain() {
         </td>
       </tr>
     `).join('')
-     : `<tr><td colspan="5">${state.items.length ? 'No items match your search.' : 'No inventory items yet.'}</td></tr>`;
+     : `<tr><td colspan="6">${state.items.length ? 'No items match your search.' : 'No inventory items yet.'}</td></tr>`;
 
   table.querySelectorAll('[data-action="delete-item"]').forEach((button) => {
     button.addEventListener('click', () => {
