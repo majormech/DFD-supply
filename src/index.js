@@ -5,12 +5,14 @@ import {
   bootstrapData,
   createStationRequest,
   completeStationRequests,
+  cancelStationRequest,
   deleteItem,
   getAdminSettings,
   getAnalytics,
   json,
   lookupScan,
   updateItem,
+  modifyStationRequest,
   updateAdminSettings,
 } from './server.js';
 
@@ -52,6 +54,14 @@ export default {
 
     if (url.pathname === '/api/requests/complete' && request.method === 'POST') {
       return completeStationRequests(request, env);
+    }
+
+    if (url.pathname === '/api/requests/cancel' && request.method === 'POST') {
+      return cancelStationRequest(request, env);
+    }
+
+    if (url.pathname === '/api/requests/modify' && request.method === 'POST') {
+      return modifyStationRequest(request, env);
     }
     
     if (url.pathname === '/api/admin/settings' && request.method === 'GET') {
