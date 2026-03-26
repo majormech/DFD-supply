@@ -1694,18 +1694,77 @@ target.innerHTML = requests.map((request) => {
     const canceled = Boolean(request.canceled_at);
     const modified = Boolean(request.modified_at);
     const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+  const hasPartiallyIssuedItems = !completed && !canceled
+      && items.some((item) => {
+        const quantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+        return quantity > 0 && issuedQuantity > 0 && issuedQuantity < quantity;
+      });
+
+    const issuedItems = items
+      .map((item) => {
+        const quantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+        const safeIssuedQuantity = Number.isInteger(issuedQuantity) ? Math.max(0, issuedQuantity) : 0;
+        const safeQuantity = Number.isInteger(quantity) ? Math.max(0, quantity) : 0;
+        return {
+          name: item.name,
+          quantity: safeQuantity,
+          issuedQuantity: safeIssuedQuantity,
+          remaining: Math.max(0, safeQuantity - safeIssuedQuantity),
+        };
+      })
+      .filter((item) => item.issuedQuantity > 0);
+
+    const pendingItems = items
+      .map((item) => {
+        const quantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+        const safeIssuedQuantity = Number.isInteger(issuedQuantity) ? Math.max(0, issuedQuantity) : 0;
+        const safeQuantity = Number.isInteger(quantity) ? Math.max(0, quantity) : 0;
+        return {
+          name: item.name,
+          quantity: safeQuantity,
+          issuedQuantity: safeIssuedQuantity,
+          remaining: Math.max(0, safeQuantity - safeIssuedQuantity),
+        };
+      })
+      .filter((item) => item.remaining > 0);
+  
     const statusClass = canceled
       ? 'request-history-card--canceled'
-      : (completed ? 'request-history-card--complete' : 'request-history-card--pending');
+      : (completed
+        ? 'request-history-card--complete'
+        : (hasPartiallyIssuedItems ? 'request-history-card--partial' : 'request-history-card--pending'));
     return `
       <article class="request-history-card ${statusClass}">
         <div class="request-history-card__header">
-          <strong>${canceled ? 'Canceled request' : (completed ? 'Completed request' : 'Pending request')}</strong>
+          <strong>${canceled ? 'Canceled request' : (completed ? 'Completed request' : (hasPartiallyIssuedItems ? 'Partially completed request' : 'Pending request'))}</strong>
           ${modified ? '<span class="request-modified-badge">Modified</span>' : ''}
         </div>
-        <ul>
-          ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
-        </ul>
+        ${hasPartiallyIssuedItems
+          ? `
+            <p class="helper"><strong>Status:</strong> Partially completed</p>
+            <div class="request-progress-grid">
+              <div>
+                <p class="helper"><strong>Issued items</strong></p>
+                ${issuedItems.length
+                  ? `<ul>${issuedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.issuedQuantity)}</strong> issued${item.remaining > 0 ? ` <span class="helper">(${item.remaining} pending)</span>` : ''}</li>`).join('')}</ul>`
+                  : '<p class="helper">No items have been issued yet.</p>'}
+              </div>
+              <div>
+                <p class="helper"><strong>Pending fulfillment</strong></p>
+                ${pendingItems.length
+                  ? `<ul>${pendingItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.remaining)}</strong> pending <span class="helper">(${item.issuedQuantity} issued)</span></li>`).join('')}</ul>`
+                  : '<p class="helper">All requested items have been fulfilled.</p>'}
+              </div>
+            </div>
+          `
+          : `
+            <ul>
+              ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
+            </ul>
+          `}
         <p class="helper">Requested: ${new Date(request.created_at).toLocaleString()} · by ${escapeHtml(request.requester_name)}</p>
         ${completed
           ? `<p class="helper">Completed: ${new Date(request.completed_at).toLocaleString()} · by ${escapeHtml(request.completed_by || 'Unknown')}</p>`
