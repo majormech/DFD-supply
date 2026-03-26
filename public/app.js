@@ -75,10 +75,6 @@ function formToPayload(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
 
-function itemOptions(items) {
-  return ['<option value="">Select an item</option>', ...items.map((item) => `<option value="${item.id}">${item.name} (${item.sku})</option>`)].join('');
-}
-
 async function loadBootstrap() {
   const data = await fetchJson('/api/bootstrap');
   state.items = data.items;
@@ -1449,6 +1445,7 @@ function openRequestItemModal(stationCode) {
   let activeItem = null;
   let scannedCode = '';
   const overlay = document.createElement('div');
+  let manualSearchTerm = '';
   overlay.className = 'scanner-modal';
   overlay.innerHTML = `
     <div class="scanner-modal__card">
@@ -1463,9 +1460,12 @@ function openRequestItemModal(stationCode) {
       <div data-role="scanBlock" class="stack compact">
         <button type="button" class="secondary" data-action="scan">Scan QR or barcode</button>
       </div>
-      <label data-role="pickerBlock" class="hidden">Select inventory item
-        <select name="manualItem">${itemOptions(state.items)}</select>
-      </label>
+      <div data-role="pickerBlock" class="hidden stack compact">
+        <label>Search inventory item
+          <input type="search" name="manualItemSearch" placeholder="Search by item name or SKU" autocomplete="off" />
+        </label>
+        <div data-role="manualItemList" class="manual-item-list"></div>
+      </div>
       <div data-role="itemInfo" class="restock-item-summary hidden"></div>
       <label>Amount requesting
         <input type="number" min="1" value="1" name="requestQty" />
@@ -1492,7 +1492,8 @@ function openRequestItemModal(stationCode) {
   const noCodeInput = overlay.querySelector('input[name="noCode"]');
   const pickerBlock = overlay.querySelector('[data-role="pickerBlock"]');
   const scanBlock = overlay.querySelector('[data-role="scanBlock"]');
-  const manualItemSelect = overlay.querySelector('select[name="manualItem"]');
+  const manualSearchInput = overlay.querySelector('input[name="manualItemSearch"]');
+  const manualItemList = overlay.querySelector('[data-role="manualItemList"]');
   const itemInfo = overlay.querySelector('[data-role="itemInfo"]');
   const qtyInput = overlay.querySelector('input[name="requestQty"]');
   const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
@@ -1502,6 +1503,41 @@ function openRequestItemModal(stationCode) {
     requestItemsEl.innerHTML = addedItems.length
       ? `<strong>Items in request</strong><ul>${addedItems.map((entry) => `<li>${escapeHtml(entry.name)}: ${entry.quantity}</li>`).join('')}</ul>`
       : '<p class="helper">No items added yet.</p>';
+  };
+
+  const renderManualItemList = () => {
+    const query = manualSearchTerm.trim().toLowerCase();
+    const filteredItems = query
+      ? state.items.filter((item) => {
+        const name = String(item.name || '').toLowerCase();
+        const sku = String(item.sku || '').toLowerCase();
+        return name.includes(query) || sku.includes(query);
+      })
+      : state.items;
+
+    if (!filteredItems.length) {
+      manualItemList.innerHTML = '<p class="helper">No matching inventory items.</p>';
+      return;
+    }
+
+    manualItemList.innerHTML = filteredItems.map((item) => {
+      const isActive = activeItem && String(activeItem.id) === String(item.id);
+      return `
+        <button type="button" class="manual-item-list__option ${isActive ? 'manual-item-list__option--active' : ''}" data-item-id="${item.id}">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="helper">SKU: ${escapeHtml(item.sku)} · On hand: ${item.total_quantity}</span>
+        </button>
+      `;
+    }).join('');
+
+    manualItemList.querySelectorAll('[data-item-id]').forEach((button) => {
+      button.addEventListener('click', () => {
+        activeItem = state.items.find((item) => String(item.id) === String(button.dataset.itemId)) || null;
+        scannedCode = '';
+        updateActiveItemDisplay();
+        renderManualItemList();
+      });
+    });
   };
 
   const updateActiveItemDisplay = () => {
@@ -1519,6 +1555,7 @@ function openRequestItemModal(stationCode) {
   };
 
   renderAddedItems();
+  renderManualItemList();
 
   noCodeInput.addEventListener('change', () => {
     const useDropdown = noCodeInput.checked;
@@ -1526,7 +1563,9 @@ function openRequestItemModal(stationCode) {
     scanBlock.classList.toggle('hidden', useDropdown);
     activeItem = null;
     scannedCode = '';
-    manualItemSelect.value = '';
+    manualSearchTerm = '';
+    manualSearchInput.value = '';
+    renderManualItemList();
     updateActiveItemDisplay();
   });
 
@@ -1541,10 +1580,9 @@ function openRequestItemModal(stationCode) {
     }
   });
 
-  manualItemSelect.addEventListener('change', () => {
-    activeItem = state.items.find((item) => String(item.id) === String(manualItemSelect.value)) || null;
-    scannedCode = '';
-    updateActiveItemDisplay();
+  manualSearchInput.addEventListener('input', (event) => {
+    manualSearchTerm = event.target.value;
+    renderManualItemList();
   });
 
   overlay.querySelector('[data-action="add"]').addEventListener('click', () => {
@@ -1563,7 +1601,7 @@ function openRequestItemModal(stationCode) {
     qtyInput.value = '1';
     activeItem = null;
     scannedCode = '';
-    manualItemSelect.value = '';
+    renderManualItemList();
     updateActiveItemDisplay();
     renderAddedItems();
     showToast('Item added to request.');
