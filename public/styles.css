@@ -420,7 +420,29 @@ button.request-success {
 
 .issue-request-list {
   margin: 0;
+   display: grid;
+  gap: 8px;
+}
+
+.issue-request-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.issue-request-card ul {
+  margin: 6px 0 0;
   padding-left: 18px;
+}
+
+.issue-request-card--partial {
+  background: #fff8cc;
+  border-color: #d3a700;
+}
+
+.issued-line {
+  text-decoration: line-through;
+  color: #5b6470;
 }
 
 .issue-row {
@@ -440,5 +462,12 @@ button.request-success {
 }
 
 .issue-row--entry {
-  grid-template-columns: 1fr 180px 130px;
+   grid-template-columns: 26px 1fr 180px 130px;
+}
+
+.issue-row--partial {
+  background: #fff8cc;
+  border: 1px solid #d3a700;
+  border-radius: 8px;
+  padding: 8px;
 }
