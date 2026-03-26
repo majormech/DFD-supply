@@ -907,6 +907,7 @@ function openIssueItemsModal(stationId) {
       remainingQuantity: item.remainingQuantity,
       issueQuantity: item.remainingQuantity > 0 ? Math.min(Math.max(1, item.remainingQuantity), item.available) : 0,
       isComplete: item.remainingQuantity <= 0,
+      markedUnable: false,
       isPartialRequest: item.issuedQuantity > 0 && item.remainingQuantity > 0,
       code: '',
       source: 'request',
@@ -964,15 +965,19 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
     issueItemsEl.innerHTML = issueEntries.length
       ? issueEntries.map((item, index) => `
         <div class="issue-row issue-row--entry ${item.isPartialRequest ? 'issue-row--partial' : ''}" data-index="${index}">
-          <input type="checkbox" ${item.isComplete ? 'checked' : ''} disabled />
+          <label class="checkbox-label">
+            <input type="checkbox" data-field="unableToIssue" ${item.isComplete || item.markedUnable ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
+            ${item.isComplete ? 'Issued' : 'Unable to issue'}
+          </label>
           <div>
             <strong class="${item.isComplete ? 'issued-line' : ''}">${escapeHtml(item.itemName)}</strong>
             ${item.source === 'request' ? '<div class="helper">Loaded from request queue</div>' : ''}
             ${item.code ? `<div class="helper">Scanned code: ${escapeHtml(item.code)}</div>` : ''}
             <div class="helper">Requested: ${item.requestedQuantity} · Issued: ${item.issuedQuantity} · Remaining: ${item.remainingQuantity}</div>
+            ${item.markedUnable ? '<div class="helper">Marked as unable to issue for this submission.</div>' : ''}
           </div>
           <label>Quantity to issue
-            <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete ? 'disabled' : ''} />
+            <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete || item.markedUnable ? 'disabled' : ''} />
           </label>
           <div class="helper">In stock: ${item.available}</div>
         </div>
@@ -981,7 +986,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   };
 
   const refreshSubmitState = () => {
-    const openEntries = issueEntries.filter((item) => !item.isComplete);
+    const openEntries = issueEntries.filter((item) => !item.isComplete && !item.markedUnable);
     const canSubmit = Boolean(confirmPulled.checked && openEntries.length);
     submitButton.disabled = !canSubmit;
   };
@@ -1022,6 +1027,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
         remainingQuantity: 1,
         issueQuantity: 1,
         isComplete: false,
+        markedUnable: false,
         isPartialRequest: false,
         code: trimmed,
         source: mode,
@@ -1068,13 +1074,26 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
 
   issueItemsEl.addEventListener('input', (event) => {
     const qtyInput = event.target.closest('[data-field="issueQty"]');
-    if (!qtyInput) return;
-    const row = qtyInput.closest('.issue-row');
+    const row = event.target.closest('.issue-row');
     const index = Number.parseInt(row?.dataset.index || '-1', 10);
     const entry = issueEntries[index];
     if (!entry) return;
-    const qty = Number.parseInt(qtyInput.value || '0', 10);
-    entry.issueQuantity = Number.isInteger(qty) ? qty : 0;
+    if (qtyInput) {
+      const qty = Number.parseInt(qtyInput.value || '0', 10);
+      entry.issueQuantity = Number.isInteger(qty) ? qty : 0;
+    }
+  });
+
+  issueItemsEl.addEventListener('change', (event) => {
+    const unableToggle = event.target.closest('[data-field="unableToIssue"]');
+    if (!unableToggle) return;
+    const row = unableToggle.closest('.issue-row');
+    const index = Number.parseInt(row?.dataset.index || '-1', 10);
+    const entry = issueEntries[index];
+    if (!entry || entry.isComplete) return;
+    entry.markedUnable = Boolean(unableToggle.checked);
+    renderIssueItems();
+    refreshSubmitState();
   });
 
   confirmPulled?.addEventListener('change', () => {
@@ -1093,7 +1112,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
       return;
     }
 
-    const pendingEntries = issueEntries.filter((item) => !item.isComplete);
+    const pendingEntries = issueEntries.filter((item) => !item.isComplete && !item.markedUnable);
     const overLimit = pendingEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available || item.issueQuantity > item.remainingQuantity);
     if (overLimit) {
       showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${Math.min(overLimit.available, overLimit.remainingQuantity)}.`, true);
