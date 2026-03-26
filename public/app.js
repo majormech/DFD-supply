@@ -403,10 +403,6 @@ async function openDeletePrompt(itemId, itemName) {
   });
 
   overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
-
   submitButton.addEventListener('click', async () => {
     const employeeOrDepartment = identityInput.value.trim();
   if (!employeeOrDepartment) {
@@ -523,10 +519,6 @@ async function openModifyPrompt(itemId) {
   }
 
   overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
-
   submitButton.addEventListener('click', async () => {
     const payload = Object.fromEntries(
       [...overlay.querySelectorAll('input[name]')].map((input) => [input.name, input.value])
@@ -941,11 +933,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
     cancelConfirm.classList.add('hidden');
   });
   overlay.querySelector('[data-action="confirm-cancel"]')?.addEventListener('click', close);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
-
-scanItemButton?.addEventListener('click', () => {
+  scanItemButton?.addEventListener('click', () => {
     promptToAddItem(true);
   });
   addAnotherButton?.addEventListener('click', () => {
@@ -1645,9 +1633,6 @@ function openRequestItemModal(stationCode) {
   });
   overlay.querySelector('[data-action="confirmCancel"]').addEventListener('click', close);
 
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) close();
-  });
 }
 
 async function wireRequestPage() {
