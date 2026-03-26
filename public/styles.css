@@ -487,36 +487,57 @@ button.request-success {
   color: #5b6470;
 }
 
-.issue-row {
+.issue-entry-list {
   display: grid;
-  grid-template-columns: 26px 1fr 140px 130px;
+  gap: 10px;
+}
+
+.issue-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfcff;
+  display: grid;
   gap: 8px;
+ }
+
+.issue-entry__header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.issue-row + .issue-row {
-  margin-top: 8px;
+.issue-entry__unable-toggle {
+  font-size: 0.88rem;
+  white-space: nowrap;
 }
 
-.issue-row input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+.issue-entry__counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  font-size: 0.92rem;
 }
 
-.issue-row--entry {
-   grid-template-columns: 150px minmax(0, 1fr) 180px 130px;
-  align-items: start;
+.issue-entry__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.issue-row--entry .checkbox-label {
-  line-height: 1.2;
+.issue-entry__qty {
+  max-width: 200px;
 }
 
-.issue-row--partial {
+.issue-entry--partial {
   background: #fff8cc;
-  border: 1px solid #d3a700;
-  border-radius: 8px;
-  padding: 8px;
+  border-color: #d3a700;
+}
+
+.issue-entry--unable {
+  background: #fff5f5;
+  border-color: #edbcbc;
 }
 
 @media (max-width: 720px) {
@@ -530,8 +551,12 @@ button.request-success {
     max-height: 96vh;
   }
 
-  .issue-row--entry {
+  .issue-entry__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .issue-entry__counts {
     grid-template-columns: 1fr;
-    gap: 6px;
   }
 }
