@@ -106,6 +106,12 @@ export async function bootstrapData(db) {
         sr.requester_name,
         sr.requested_items_json,
         sr.other_items,
+        sr.modified_by,
+        sr.modification_reason,
+        sr.modified_at,
+        sr.canceled_by,
+        sr.cancel_reason,
+        sr.canceled_at,
         sr.completed_by,
         sr.completed_at,
         sr.created_at,
@@ -702,7 +708,7 @@ export async function completeStationRequests(request, env) {
     await env.DB.prepare(`
       UPDATE station_requests
       SET completed_by = ?, completed_at = CURRENT_TIMESTAMP
-      WHERE id IN (${placeholders}) AND completed_at IS NULL
+      WHERE id IN (${placeholders}) AND completed_at IS NULL AND canceled_at IS NULL
     `).bind(completedBy, ...requestIds).run();
     return json({ ok: true, completedBy, requestIds });
   }
@@ -710,10 +716,77 @@ export async function completeStationRequests(request, env) {
   await env.DB.prepare(`
     UPDATE station_requests
     SET completed_by = ?, completed_at = CURRENT_TIMESTAMP
-    WHERE station_id = ? AND completed_at IS NULL
+    WHERE station_id = ? AND completed_at IS NULL AND canceled_at IS NULL
   `).bind(completedBy, resolvedStationId).run();
 
   return json({ ok: true, stationId: resolvedStationId, completedBy });
+}
+
+export async function cancelStationRequest(request, env) {
+  const body = await parseBody(request);
+  const requestId = Number.parseInt(body?.requestId, 10);
+  const canceledBy = String(body?.canceledBy || '').trim();
+  const cancelReason = String(body?.cancelReason || '').trim();
+
+  if (!Number.isInteger(requestId) || requestId <= 0) return badRequest('requestId is required');
+  if (!canceledBy) return badRequest('canceledBy is required');
+  if (!cancelReason) return badRequest('cancelReason is required');
+
+  const existing = await env.DB.prepare(`
+    SELECT id, completed_at, canceled_at
+    FROM station_requests
+    WHERE id = ?
+  `).bind(requestId).first();
+  if (!existing) return badRequest('Request not found', 404);
+  if (existing.canceled_at) return badRequest('Request is already canceled');
+  if (existing.completed_at) return badRequest('Completed requests cannot be canceled');
+
+  await env.DB.prepare(`
+    UPDATE station_requests
+    SET canceled_by = ?,
+        cancel_reason = ?,
+        canceled_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(canceledBy, cancelReason, requestId).run();
+
+  return json({ ok: true, requestId, canceledBy });
+}
+
+export async function modifyStationRequest(request, env) {
+  const body = await parseBody(request);
+  const requestId = Number.parseInt(body?.requestId, 10);
+  const modifiedBy = String(body?.modifiedBy || '').trim();
+  const modificationReason = String(body?.modificationReason || '').trim();
+  const requestedItems = Array.isArray(body?.items)
+    ? body.items
+      .map((entry) => ({ name: (entry.name || '').trim(), quantity: Number.parseInt(entry.quantity || 0, 10) }))
+      .filter((entry) => entry.name && entry.quantity > 0)
+    : [];
+
+  if (!Number.isInteger(requestId) || requestId <= 0) return badRequest('requestId is required');
+  if (!modifiedBy) return badRequest('modifiedBy is required');
+  if (!modificationReason) return badRequest('modificationReason is required');
+  if (!requestedItems.length) return badRequest('Provide at least one inventory item.');
+
+  const existing = await env.DB.prepare(`
+    SELECT id, completed_at, canceled_at
+    FROM station_requests
+    WHERE id = ?
+  `).bind(requestId).first();
+  if (!existing) return badRequest('Request not found', 404);
+  if (existing.canceled_at) return badRequest('Canceled requests cannot be modified');
+  if (existing.completed_at) return badRequest('Completed requests cannot be modified');
+
+  await env.DB.prepare(`
+    UPDATE station_requests
+    SET requested_items_json = ?,
+        modified_by = ?,
+        modification_reason = ?,
+        modified_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(JSON.stringify(requestedItems), modifiedBy, modificationReason, requestId).run();
+
+  return json({ ok: true, requestId, modifiedBy });
 }
 
 export async function deleteItem(request, env) {
