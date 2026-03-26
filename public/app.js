@@ -112,6 +112,125 @@ function buildQrImageUrl(value) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(value)}`;
 }
 
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    || 'item';
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Unable to load QR image.'));
+    image.src = url;
+  });
+}
+
+async function buildNamedQrBlob(item, format = 'png') {
+  const typeByFormat = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    webp: 'image/webp',
+  };
+  const mimeType = typeByFormat[format] || typeByFormat.png;
+  const qrUrl = item.qr_image_url || buildQrImageUrl(item.qr_code || '');
+  const qrImage = await loadImage(qrUrl);
+
+  const size = 1200;
+  const topPadding = 170;
+  const sidePadding = 130;
+  const bottomPadding = 120;
+  const qrSize = size - (sidePadding * 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = topPadding + qrSize + bottomPadding;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to prepare image download.');
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  context.fillStyle = '#142033';
+  context.font = '700 56px Inter, Arial, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(String(item.name || 'Inventory Item'), canvas.width / 2, 85, canvas.width - 60);
+
+  context.imageSmoothingEnabled = false;
+  context.drawImage(qrImage, sidePadding, topPadding, qrSize, qrSize);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Unable to create downloadable image.'));
+        return;
+      }
+      resolve(blob);
+    }, mimeType, 0.95);
+  });
+}
+
+async function downloadNamedQrCode(item, format = 'png') {
+  const safeFormat = ['png', 'jpg', 'webp'].includes(format) ? format : 'png';
+  const blob = await buildNamedQrBlob(item, safeFormat);
+  downloadBlob(`${slugify(item.name)}-qr.${safeFormat}`, blob);
+}
+
+function openQrCodePopup(itemId) {
+  const item = state.items.find((entry) => String(entry.id) === String(itemId));
+  if (!item) {
+    showToast('Could not find item QR code.', true);
+    return;
+  }
+  if (!item.qr_image_url && !item.qr_code) {
+    showToast('No QR code is available for this item.', true);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  const qrUrl = item.qr_image_url || buildQrImageUrl(item.qr_code);
+  overlay.innerHTML = `
+    <div class="scanner-modal__card qr-preview-modal">
+      <h3>${escapeHtml(item.name)}</h3>
+      <p class="helper">Download this QR code with the item name included above the code.</p>
+      <img class="qr-preview-modal__image" src="${escapeHtml(qrUrl)}" alt="QR code for ${escapeHtml(item.name)}" />
+      <div class="scanner-modal__actions qr-preview-modal__actions">
+        <button type="button" class="secondary" data-action="download-qr" data-format="png">Download PNG</button>
+        <button type="button" class="secondary" data-action="download-qr" data-format="jpg">Download JPG</button>
+        <button type="button" class="secondary" data-action="download-qr" data-format="webp">Download WEBP</button>
+        <button type="button" class="ghost" data-action="close">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-action="close"]')?.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  overlay.querySelectorAll('[data-action="download-qr"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const format = button.dataset.format || 'png';
+      button.disabled = true;
+      try {
+        await downloadNamedQrCode(item, format);
+        showToast(`Downloaded ${item.name} QR as ${format.toUpperCase()}.`);
+      } catch (error) {
+        showToast(error.message || 'Failed to download QR code image.', true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 function formToPayload(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
@@ -327,8 +446,10 @@ function renderMain() {
         <td>${item.name}</td>
         <td>${item.sku}</td>
         <td>
-          ${item.qr_image_url
-            ? `<img class="qr-thumb" src="${escapeHtml(item.qr_image_url)}" alt="QR code for ${escapeHtml(item.name)}" loading="lazy" />`
+           ${(item.qr_image_url || item.qr_code)
+            ? `<button type="button" class="qr-thumb-button" data-action="open-qr-popup" data-item-id="${item.id}" title="Open QR code">
+                <img class="qr-thumb" src="${escapeHtml(item.qr_image_url || buildQrImageUrl(item.qr_code))}" alt="QR code for ${escapeHtml(item.name)}" loading="lazy" />
+              </button>`
             : '<span class="helper">No QR</span>'}
         </td>
         <td>${item.total_quantity}</td>
@@ -364,6 +485,10 @@ function renderMain() {
     });
   });
 
+  table.querySelectorAll('[data-action="open-qr-popup"]').forEach((button) => {
+    button.addEventListener('click', () => openQrCodePopup(button.dataset.itemId));
+  });
+  
   const stationList = document.querySelector('#station-status-list');
     if (!stationList) return;
     const requestsByStation = getActiveStationRequests().reduce((acc, request) => {
