@@ -59,7 +59,7 @@ function currency(value) {
 }
 
 function getActiveStationRequests() {
-  return state.stationRequests.filter((request) => !request.completed_at);
+  return state.stationRequests.filter((request) => !request.completed_at && !request.canceled_at);
 }
 
 function escapeHtml(value) {
@@ -1425,10 +1425,18 @@ function renderRecentStationRequests(stationCode) {
   
 target.innerHTML = requests.map((request) => {
     const completed = Boolean(request.completed_at);
+    const canceled = Boolean(request.canceled_at);
+    const modified = Boolean(request.modified_at);
     const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+    const statusClass = canceled
+      ? 'request-history-card--canceled'
+      : (completed ? 'request-history-card--complete' : 'request-history-card--pending');
     return `
-      <article class="request-history-card ${completed ? 'request-history-card--complete' : 'request-history-card--pending'}">
-        <strong>${completed ? 'Completed request' : 'Pending request'}</strong>
+      <article class="request-history-card ${statusClass}">
+        <div class="request-history-card__header">
+          <strong>${canceled ? 'Canceled request' : (completed ? 'Completed request' : 'Pending request')}</strong>
+          ${modified ? '<span class="request-modified-badge">Modified</span>' : ''}
+        </div>
         <ul>
           ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
         </ul>
@@ -1436,9 +1444,106 @@ target.innerHTML = requests.map((request) => {
         ${completed
           ? `<p class="helper">Completed: ${new Date(request.completed_at).toLocaleString()} · by ${escapeHtml(request.completed_by || 'Unknown')}</p>`
           : '<p class="helper">Completion: still pending</p>'}
+          ${canceled
+          ? `<p class="helper"><strong>Canceled:</strong> ${new Date(request.canceled_at).toLocaleString()} · by ${escapeHtml(request.canceled_by || 'Unknown')} · Reason: ${escapeHtml(request.cancel_reason || 'Not provided')}</p>`
+          : ''}
+        ${modified
+          ? `<p class="helper request-history-card__modification"><strong>Modification:</strong> ${new Date(request.modified_at).toLocaleString()} · by ${escapeHtml(request.modified_by || 'Unknown')} · Reason: ${escapeHtml(request.modification_reason || 'Not provided')}</p>`
+          : ''}
+        ${(!completed && !canceled)
+          ? `<div class="inline-actions"><button type="button" class="secondary" data-action="modify-request" data-request-id="${request.id}" data-station-code="${escapeHtml(stationCode)}">Modify request</button><button type="button" class="danger" data-action="cancel-request" data-request-id="${request.id}" data-station-code="${escapeHtml(stationCode)}">Cancel request</button></div>`
+          : ''}
       </article>
     `;
   }).join('');
+  target.querySelectorAll('[data-action="cancel-request"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const canceledBy = window.prompt('Who is canceling this request?');
+      if (!canceledBy) return;
+      const cancelReason = window.prompt('Why is this request being canceled?');
+      if (!cancelReason) {
+        showToast('Cancel reason is required.', true);
+        return;
+      }
+      try {
+        await fetchJson('/api/requests/cancel', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            requestId: button.dataset.requestId,
+            canceledBy,
+            cancelReason,
+          }),
+        });
+        await loadBootstrap();
+        renderRecentStationRequests(button.dataset.stationCode);
+        showToast('Request canceled.');
+      } catch (error) {
+        showToast(error.message, true);
+      }
+    });
+  });
+
+  target.querySelectorAll('[data-action="modify-request"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openModifyRequestModal(button.dataset.requestId, button.dataset.stationCode);
+    });
+  });
+}
+
+function openModifyRequestModal(requestId, stationCode) {
+  const request = state.stationRequests.find((entry) => String(entry.id) === String(requestId));
+  if (!request) {
+    showToast('Request not found.', true);
+    return;
+  }
+  const existingItems = Array.isArray(request.requested_items) ? request.requested_items : [];
+  const modifiedBy = window.prompt('Who is making this modification?');
+  if (!modifiedBy) return;
+  const modificationReason = window.prompt('Why is this request being modified?');
+  if (!modificationReason) {
+    showToast('Modification reason is required.', true);
+    return;
+  }
+  const updatedItemsRaw = window.prompt(
+    'Enter updated items as "Item Name:Qty, Item Name:Qty"',
+    existingItems.map((item) => `${item.name}:${item.quantity}`).join(', '),
+  );
+  if (!updatedItemsRaw) return;
+
+  const parsedItems = updatedItemsRaw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [namePart, qtyPart] = entry.split(':');
+      const name = String(namePart || '').trim();
+      const quantity = Number.parseInt(String(qtyPart || '').trim(), 10);
+      return { name, quantity };
+    })
+    .filter((entry) => entry.name && entry.quantity > 0);
+
+  if (!parsedItems.length) {
+    showToast('Please provide at least one valid item in Item:Qty format.', true);
+    return;
+  }
+
+  fetchJson('/api/requests/modify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      requestId,
+      modifiedBy,
+      modificationReason,
+      items: parsedItems,
+    }),
+  })
+    .then(async () => {
+      await loadBootstrap();
+      renderRecentStationRequests(stationCode);
+      showToast('Request modified.');
+    })
+    .catch((error) => showToast(error.message, true));
 }
 
 function openRequestItemModal(stationCode) {
