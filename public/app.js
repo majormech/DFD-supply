@@ -1701,13 +1701,24 @@ target.innerHTML = requests.map((request) => {
     const canceled = Boolean(request.canceled_at);
     const modified = Boolean(request.modified_at);
     const items = Array.isArray(request.requested_items) ? request.requested_items : [];
-  const hasPartiallyIssuedItems = !completed && !canceled
+    const hasPartiallyIssuedItems = !completed && !canceled
       && items.some((item) => {
         const quantity = Number.parseInt(item.quantity || 0, 10);
         const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
         return quantity > 0 && issuedQuantity > 0 && issuedQuantity < quantity;
       });
-
+const hasIssuedItems = items.some((item) => {
+      const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+      return issuedQuantity > 0;
+    });
+    const allItemsIssued = items.length > 0 && items.every((item) => {
+      const quantity = Number.parseInt(item.quantity || 0, 10);
+      const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+      return issuedQuantity >= quantity;
+    });
+    const hasPartialProgress = !completed && !canceled
+      && (hasPartiallyIssuedItems || (hasIssuedItems && !allItemsIssued));
+  
     const issuedItems = items
       .map((item) => {
         const quantity = Number.parseInt(item.quantity || 0, 10);
@@ -1742,14 +1753,14 @@ target.innerHTML = requests.map((request) => {
       ? 'request-history-card--canceled'
       : (completed
         ? 'request-history-card--complete'
-        : (hasPartiallyIssuedItems ? 'request-history-card--partial' : 'request-history-card--pending'));
+        : (hasPartialProgress ? 'request-history-card--partial' : 'request-history-card--pending'));
     return `
       <article class="request-history-card ${statusClass}">
         <div class="request-history-card__header">
-          <strong>${canceled ? 'Canceled request' : (completed ? 'Completed request' : (hasPartiallyIssuedItems ? 'Partially completed request' : 'Pending request'))}</strong>
+           <strong>${canceled ? 'Canceled request' : (completed ? 'Completed request' : (hasPartialProgress ? 'Partially completed request' : 'Pending request'))}</strong>
           ${modified ? '<span class="request-modified-badge">Modified</span>' : ''}
         </div>
-        ${hasPartiallyIssuedItems
+       ${hasPartialProgress
           ? `
             <p class="helper"><strong>Status:</strong> Partially completed</p>
             <div class="request-progress-grid">
