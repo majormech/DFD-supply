@@ -326,6 +326,7 @@ button.success {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
+  position: relative;
 }
 
 .request-history-card ul {
@@ -341,6 +342,34 @@ button.success {
 .request-history-card--pending {
   border-color: #bf2222;
   background: #ffe7e7;
+}
+
+.request-history-card--canceled {
+  border-color: #6c7280;
+  background: #e5e7eb;
+}
+
+.request-history-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.request-modified-badge {
+  background: #fef08a;
+  color: #5c4300;
+  border: 1px solid #dcc34d;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.request-history-card__modification {
+  border-top: 1px dashed #d3a700;
+  padding-top: 8px;
+  margin-top: 8px;
 }
 
 button.request-success {
