@@ -39,6 +39,12 @@ function generateSku(body) {
   return `${(namePart || 'ITEM')}-${(qrPart || 'QR')}-${stamp}`;
 }
 
+function buildQrImageUrl(qrCode) {
+  const value = String(qrCode || '').trim();
+  if (!value) return null;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(value)}`;
+}
+
 export async function bootstrapData(db) {
   const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
@@ -50,6 +56,7 @@ export async function bootstrapData(db) {
         i.barcode,
         i.qr_code,
         i.description,
+        i.qr_image_url,
         i.unit_cost,
         i.low_stock_level,
         i.total_quantity,
@@ -169,6 +176,7 @@ export async function addItem(request, env) {
   const performedAtRaw = String(body.performedAt || '').trim();
   const performedAt = performedAtRaw ? performedAtRaw.replace('T', ' ') : null;
   const sku = generateSku(body);
+  const qrImageUrl = buildQrImageUrl(body.qrCode);
   if (Number.isNaN(qty) || qty < 0) return badRequest('totalQuantity must be a positive number or 0');
   if (Number.isNaN(unitCost) || unitCost < 0) return badRequest('unitCost must be a positive number or 0');
   if (Number.isNaN(lowStockLevel) || lowStockLevel < 0) return badRequest('lowStockLevel must be a positive number or 0');
@@ -176,10 +184,10 @@ export async function addItem(request, env) {
   
   try {
     const inserted = await env.DB.prepare(`
-       INSERT INTO items (name, sku, barcode, qr_code, description, unit_cost, low_stock_level, total_quantity, updated_at)
-      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO items (name, sku, barcode, qr_code, qr_image_url, description, unit_cost, low_stock_level, total_quantity, updated_at)
+      VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, CURRENT_TIMESTAMP)
       RETURNING *
-    `).bind(body.name.trim(), sku, primaryBarcode, body.qrCode ?? '', body.description ?? '', unitCost, lowStockLevel, qty).first();
+    `).bind(body.name.trim(), sku, primaryBarcode, body.qrCode ?? '', qrImageUrl ?? '', body.description ?? '', unitCost, lowStockLevel, qty).first();
 
     const operations = [];
     
@@ -216,7 +224,7 @@ export async function updateItem(request, env) {
   const name = String(body?.name || '').trim();
   const sku = String(body?.sku || '').trim();
   const qrCode = String(body?.qrCode || '').trim();
-  const description = String(body?.description || '').trim();
+  const qrImageUrl = buildQrImageUrl(qrCode);
   const performedBy = String(body?.performedBy || 'Main Page Edit').trim() || 'Main Page Edit';
   const barcodes = parseBarcodes(body);
   const primaryBarcode = barcodes[0] || '';
@@ -242,6 +250,7 @@ export async function updateItem(request, env) {
             sku = ?,
             qr_code = ?,
             barcode = NULLIF(?, ''),
+            qr_image_url = NULLIF(?, ''),
             description = NULLIF(?, ''),
             unit_cost = ?,
             low_stock_level = ?,
@@ -249,7 +258,7 @@ export async function updateItem(request, env) {
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).bind(name, sku, qrCode, primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
-      env.DB.prepare('DELETE FROM item_barcodes WHERE item_id = ?').bind(itemId),
+      `).bind(name, sku, qrCode, qrImageUrl ?? '', primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
       ...barcodes.map((barcode) => env.DB.prepare(`
         INSERT INTO item_barcodes (item_id, barcode)
         VALUES (?, ?)
