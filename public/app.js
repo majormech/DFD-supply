@@ -509,6 +509,7 @@ async function openModifyPrompt(itemId) {
       <label>Item QR code
         <div class="input-with-action">
           <input type="text" name="qrCode" value="${escapeHtml(item.qr_code || '')}" required />
+          <button type="button" class="secondary" data-action="generate-qr-code">Generate new QR code</button>
           <button type="button" class="secondary" data-action="scan-qr-code">Scan new QR code</button>
         </div>
       </label>
@@ -547,7 +548,13 @@ async function openModifyPrompt(itemId) {
   const barcodesInput = overlay.querySelector('input[name="barcodes"]');
   const scanBarcodeButton = overlay.querySelector('[data-action="scan-barcode"]');
   const qrCodeInput = overlay.querySelector('input[name="qrCode"]');
+  const generateQrCodeButton = overlay.querySelector('[data-action="generate-qr-code"]');
   const scanQrCodeButton = overlay.querySelector('[data-action="scan-qr-code"]');
+  generateQrCodeButton?.addEventListener('click', () => {
+    if (!qrCodeInput) return;
+    qrCodeInput.value = buildGeneratedQrCode();
+    showToast('New QR code value generated.');
+  });
   if (qrCodeInput && scanQrCodeButton) {
     attachScannerButton(qrCodeInput, scanQrCodeButton, 'QR code captured.');
   }
