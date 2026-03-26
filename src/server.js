@@ -45,6 +45,23 @@ function buildQrImageUrl(qrCode) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(value)}`;
 }
 
+function normalizeRequestedItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((entry) => {
+      const name = String(entry?.name || '').trim();
+      const quantity = Number.parseInt(entry?.quantity || 0, 10);
+      const issuedQuantity = Number.parseInt(entry?.issuedQuantity || 0, 10);
+      if (!name || quantity <= 0) return null;
+      return {
+        name,
+        quantity,
+        issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+      };
+    })
+    .filter(Boolean);
+}
+
 export async function bootstrapData(db) {
   const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
@@ -126,7 +143,7 @@ export async function bootstrapData(db) {
 
    const stationRequests = stationRequestsRes.results.map((request) => ({
     ...request,
-    requested_items: JSON.parse(request.requested_items_json || '[]'),
+    requested_items: normalizeRequestedItems(JSON.parse(request.requested_items_json || '[]')),
   }));
 
   return {
@@ -644,9 +661,7 @@ export async function createStationRequest(request, env) {
   const requesterName = (body?.requesterName || '').trim();
   const otherItems = (body?.otherItems || '').trim();
   const requestedItems = Array.isArray(body?.items)
-    ? body.items
-        .map((entry) => ({ name: (entry.name || '').trim(), quantity: Number.parseInt(entry.quantity || 0, 10) }))
-        .filter((entry) => entry.name && entry.quantity > 0)
+    ? normalizeRequestedItems(body.items)
     : [];
 
   if (!stationCode) return badRequest('stationCode is required');
@@ -758,9 +773,7 @@ export async function modifyStationRequest(request, env) {
   const modifiedBy = String(body?.modifiedBy || '').trim();
   const modificationReason = String(body?.modificationReason || '').trim();
   const requestedItems = Array.isArray(body?.items)
-    ? body.items
-      .map((entry) => ({ name: (entry.name || '').trim(), quantity: Number.parseInt(entry.quantity || 0, 10) }))
-      .filter((entry) => entry.name && entry.quantity > 0)
+    ? normalizeRequestedItems(body.items)
     : [];
 
   if (!Number.isInteger(requestId) || requestId <= 0) return badRequest('requestId is required');
@@ -787,6 +800,79 @@ export async function modifyStationRequest(request, env) {
   `).bind(JSON.stringify(requestedItems), modifiedBy, modificationReason, requestId).run();
 
   return json({ ok: true, requestId, modifiedBy });
+}
+
+export async function issueStationRequestItems(request, env) {
+  const body = await parseBody(request);
+  const issuedBy = String(body?.issuedBy || '').trim();
+  const issueItems = Array.isArray(body?.items)
+    ? body.items
+      .map((entry) => ({
+        requestId: Number.parseInt(entry?.requestId, 10),
+        itemName: String(entry?.itemName || '').trim(),
+        quantity: Number.parseInt(entry?.quantity || 0, 10),
+      }))
+      .filter((entry) => Number.isInteger(entry.requestId) && entry.requestId > 0 && entry.itemName && entry.quantity > 0)
+    : [];
+
+  if (!issuedBy) return badRequest('issuedBy is required');
+  if (!issueItems.length) return badRequest('Provide at least one issued item.');
+
+  const groupedByRequest = issueItems.reduce((acc, entry) => {
+    if (!acc[entry.requestId]) acc[entry.requestId] = [];
+    acc[entry.requestId].push(entry);
+    return acc;
+  }, {});
+
+  const completedRequestIds = [];
+  for (const [requestIdRaw, entries] of Object.entries(groupedByRequest)) {
+    const requestId = Number.parseInt(requestIdRaw, 10);
+    const existing = await env.DB.prepare(`
+      SELECT id, canceled_at, completed_at, requested_items_json
+      FROM station_requests
+      WHERE id = ?
+    `).bind(requestId).first();
+    if (!existing || existing.canceled_at || existing.completed_at) continue;
+
+    const normalizedItems = normalizeRequestedItems(JSON.parse(existing.requested_items_json || '[]'));
+    const updatesByName = entries.reduce((acc, entry) => {
+      const key = entry.itemName.toLowerCase();
+      acc[key] = (acc[key] || 0) + entry.quantity;
+      return acc;
+    }, {});
+
+    const nextItems = normalizedItems.map((item) => {
+      const key = item.name.toLowerCase();
+      if (!updatesByName[key]) return item;
+      return {
+        ...item,
+        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + updatesByName[key]),
+      };
+    });
+
+    const allIssued = nextItems.length > 0 && nextItems.every((item) => item.issuedQuantity >= item.quantity);
+    await env.DB.prepare(`
+      UPDATE station_requests
+      SET requested_items_json = ?,
+          modified_by = ?,
+          modification_reason = 'Items issued from request queue',
+          modified_at = CURRENT_TIMESTAMP,
+          completed_by = CASE WHEN ? THEN ? ELSE completed_by END,
+          completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END
+      WHERE id = ?
+    `).bind(
+      JSON.stringify(nextItems),
+      issuedBy,
+      allIssued ? 1 : 0,
+      issuedBy,
+      allIssued ? 1 : 0,
+      requestId,
+    ).run();
+
+    if (allIssued) completedRequestIds.push(requestId);
+  }
+
+  return json({ ok: true, completedRequestIds });
 }
 
 export async function deleteItem(request, env) {
