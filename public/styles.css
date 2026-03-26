@@ -43,6 +43,18 @@ th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left
   border-radius: 8px;
   background: #fff;
 }
+
+.qr-thumb-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.qr-thumb-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
 .txn { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: #fbfcff; }
 .stats-row { display: flex; justify-content: space-between; gap: 14px; font-size: 1.05rem; }
 .inventory-search {
@@ -160,6 +172,23 @@ button.success {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+qr-preview-modal {
+  max-width: 540px;
+}
+
+.qr-preview-modal__image {
+  width: min(320px, 100%);
+  margin: 0 auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.qr-preview-modal__actions {
+  flex-wrap: wrap;
 }
 
 .modify-summary {
