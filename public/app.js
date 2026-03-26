@@ -1027,7 +1027,7 @@ function openIssueItemsModal(stationId) {
       itemId: item.itemId,
       itemName: item.itemName,
       available: item.available,
-      equestedQuantity: item.requestedQuantity,
+      requestedQuantity: item.requestedQuantity,
       issuedQuantity: item.issuedQuantity,
       remainingQuantity: item.remainingQuantity,
       issueQuantity: item.remainingQuantity > 0 ? Math.min(Math.max(1, item.remainingQuantity), item.available) : 0,
@@ -1046,11 +1046,12 @@ function openIssueItemsModal(stationId) {
   overlay.innerHTML = `
     <div class="scanner-modal__card">
       <h3>Issue items · ${escapeHtml(station.name)}</h3>
+      <p class="helper">Review each requested item, set quantities to issue, and submit once inventory has been pulled.</p>
       <label>Name or employee number
         <input type="text" name="issuedBy" value="${escapeHtml(rememberedIdentity)}" required />
       </label>
-        <p class="helper">If no request is active, scan an item QR code or barcode to start issuing items.</p>
-      <div data-role="issueItems" class="stack compact"></div>
+       <p class="helper">If no request is active, scan an item QR code or barcode to start issuing items.</p>
+      <div data-role="issueItems" class="issue-entry-list"></div>
       <div class="inline-actions">
         <button type="button" data-action="scan-item" class="secondary">Scan item QR or barcode</button>
         <button type="button" data-action="add-another-item">Add another item</button>
@@ -1089,23 +1090,29 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   const renderIssueItems = () => {
     issueItemsEl.innerHTML = issueEntries.length
       ? issueEntries.map((item, index) => `
-        <div class="issue-row issue-row--entry ${item.isPartialRequest ? 'issue-row--partial' : ''}" data-index="${index}">
-          <label class="checkbox-label">
-            <input type="checkbox" data-field="unableToIssue" ${item.isComplete || item.markedUnable ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
-            ${item.isComplete ? 'Issued' : 'Unable to issue'}
-          </label>
-          <div>
+       <article class="issue-entry ${item.isPartialRequest ? 'issue-entry--partial' : ''} ${item.markedUnable ? 'issue-entry--unable' : ''}" data-index="${index}">
+          <div class="issue-entry__header">
             <strong class="${item.isComplete ? 'issued-line' : ''}">${escapeHtml(item.itemName)}</strong>
-            ${item.source === 'request' ? '<div class="helper">Loaded from request queue</div>' : ''}
-            ${item.code ? `<div class="helper">Scanned code: ${escapeHtml(item.code)}</div>` : ''}
-            <div class="helper">Requested: ${item.requestedQuantity} · Issued: ${item.issuedQuantity} · Remaining: ${item.remainingQuantity}</div>
-            ${item.markedUnable ? '<div class="helper">Marked as unable to issue for this submission.</div>' : ''}
+            <label class="checkbox-label issue-entry__unable-toggle">
+              <input type="checkbox" data-field="unableToIssue" ${item.isComplete || item.markedUnable ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
+              ${item.isComplete ? 'Issued' : 'Unable to issue'}
+            </label>
           </div>
-          <label>Quantity to issue
+          <div class="issue-entry__meta helper">
+            ${item.source === 'request' ? '<span>Loaded from request queue</span>' : ''}
+            ${item.code ? `<span>Scanned code: ${escapeHtml(item.code)}</span>` : ''}
+          </div>
+          <div class="issue-entry__counts">
+            <span><strong>Requested:</strong> ${item.requestedQuantity}</span>
+            <span><strong>Issued:</strong> ${item.issuedQuantity}</span>
+            <span><strong>Remaining:</strong> ${item.remainingQuantity}</span>
+            <span><strong>In stock:</strong> ${item.available}</span>
+          </div>
+          ${item.markedUnable ? '<div class="helper">Marked as unable to issue for this submission.</div>' : ''}
+          <label class="issue-entry__qty">Quantity to issue
             <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete || item.markedUnable ? 'disabled' : ''} />
           </label>
-          <div class="helper">In stock: ${item.available}</div>
-        </div>
+          </article>
       `).join('')
       : '<p class="helper">No items selected yet. Scan an item QR code or barcode to begin issuing.</p>';
   };
@@ -1199,7 +1206,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
 
   issueItemsEl.addEventListener('input', (event) => {
     const qtyInput = event.target.closest('[data-field="issueQty"]');
-    const row = event.target.closest('.issue-row');
+    const row = event.target.closest('.issue-entry');
     const index = Number.parseInt(row?.dataset.index || '-1', 10);
     const entry = issueEntries[index];
     if (!entry) return;
@@ -1212,7 +1219,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   issueItemsEl.addEventListener('change', (event) => {
     const unableToggle = event.target.closest('[data-field="unableToIssue"]');
     if (!unableToggle) return;
-    const row = unableToggle.closest('.issue-row');
+    const row = unableToggle.closest('.issue-entry');
     const index = Number.parseInt(row?.dataset.index || '-1', 10);
     const entry = issueEntries[index];
     if (!entry || entry.isComplete) return;
