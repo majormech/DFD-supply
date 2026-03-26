@@ -71,6 +71,30 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function randomCodeSegment(length = 6) {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(length);
+  window.crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => charset[value % charset.length]).join('');
+}
+
+function buildGeneratedQrCode() {
+  const now = new Date();
+  const stamp = [
+    now.getUTCFullYear(),
+    String(now.getUTCMonth() + 1).padStart(2, '0'),
+    String(now.getUTCDate()).padStart(2, '0'),
+    String(now.getUTCHours()).padStart(2, '0'),
+    String(now.getUTCMinutes()).padStart(2, '0'),
+    String(now.getUTCSeconds()).padStart(2, '0'),
+  ].join('');
+  return `DFD-${stamp}-${randomCodeSegment(8)}`;
+}
+
+function buildQrImageUrl(value) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(value)}`;
+}
+
 function formToPayload(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
@@ -670,7 +694,11 @@ if (!addForm) return;
   const submitButton = addForm.querySelector('#add-item-submit');
   const reviewConfirmInput = addForm.querySelector('#add-item-review-confirm');
   const nameInput = addForm.querySelector('#add-item-name');
-
+  const generateQrButton = addForm.querySelector('#add-item-generate-qr');
+  const qrPreviewSection = addForm.querySelector('#add-item-qr-preview');
+  const qrPreviewImage = addForm.querySelector('#add-item-qr-preview-image');
+  
+  const qrDownloadLink = addForm.querySelector('#add-item-qr-download-link');
   const syncBarcodeState = () => {
     const disabled = skipBarcodeInput.checked;
     barcodeInput.disabled = disabled;
@@ -688,6 +716,21 @@ if (!addForm) return;
     submitButton.disabled = true;
   };
 
+  const renderQrPreview = (value) => {
+    const codeValue = String(value || '').trim();
+    if (!codeValue) {
+      qrPreviewSection?.classList.add('hidden');
+      if (qrPreviewImage) qrPreviewImage.removeAttribute('src');
+      if (qrDownloadLink) qrDownloadLink.setAttribute('href', '#');
+      return;
+    }
+
+    const imageUrl = buildQrImageUrl(codeValue);
+    if (qrPreviewImage) qrPreviewImage.src = imageUrl;
+    if (qrDownloadLink) qrDownloadLink.href = imageUrl;
+    qrPreviewSection?.classList.remove('hidden');
+  };
+  
   const buildReviewHtml = () => {
     const values = formToPayload(addForm);
     return `
@@ -717,12 +760,22 @@ if (!addForm) return;
   [qrInput, barcodeInput, unitCostInput, performedByInput, nameInput].forEach((input) => {
     input?.addEventListener('input', resetReviewState);
   });
+  
+  qrInput?.addEventListener('input', () => renderQrPreview(qrInput.value));
 
   qrInput?.addEventListener('change', () => {
     const rememberedCost = window.localStorage.getItem(draftKey(qrInput.value));
     if (rememberedCost != null) unitCostInput.value = rememberedCost;
   });
 
+  generateQrButton?.addEventListener('click', () => {
+    const generatedCode = buildGeneratedQrCode();
+    qrInput.value = generatedCode;
+    renderQrPreview(generatedCode);
+    resetReviewState();
+    showToast('QR code value generated.');
+  });
+  
   previewButton?.addEventListener('click', () => {
     if (!addForm.reportValidity()) return;
     reviewContent.innerHTML = buildReviewHtml();
@@ -751,6 +804,7 @@ if (!addForm) return;
       performedByInput.value = window.localStorage.getItem(lastPerformerKey) || '';
       skipBarcodeInput.checked = true;
       syncBarcodeState();
+      renderQrPreview('');
       resetReviewState();
       await loadBootstrap();
       renderInventoryPage();
@@ -759,6 +813,8 @@ if (!addForm) return;
       showToast(error.message, true);
     }
   });
+  
+  renderQrPreview(qrInput?.value || '');
 }
 
 function buildRequestedItemsForStation(stationId) {
