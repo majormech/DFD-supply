@@ -225,6 +225,7 @@ export async function updateItem(request, env) {
   const sku = String(body?.sku || '').trim();
   const qrCode = String(body?.qrCode || '').trim();
   const qrImageUrl = buildQrImageUrl(qrCode);
+  const description = String(body?.description || '').trim();
   const performedBy = String(body?.performedBy || 'Main Page Edit').trim() || 'Main Page Edit';
   const barcodes = parseBarcodes(body);
   const primaryBarcode = barcodes[0] || '';
@@ -257,8 +258,8 @@ export async function updateItem(request, env) {
             total_quantity = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).bind(name, sku, qrCode, primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
-      `).bind(name, sku, qrCode, qrImageUrl ?? '', primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
+     `).bind(name, sku, qrCode, qrImageUrl ?? '', primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
+      env.DB.prepare('DELETE FROM item_barcodes WHERE item_id = ?').bind(itemId),
       ...barcodes.map((barcode) => env.DB.prepare(`
         INSERT INTO item_barcodes (item_id, barcode)
         VALUES (?, ?)
