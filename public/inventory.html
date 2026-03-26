@@ -26,7 +26,20 @@
         <section class="panel stack">
           <h2>Add new inventory item</h2>
           <form id="add-item-form" class="stack compact">
-            <label>Scan new item QR code (required)<input name="qrCode" id="add-item-qr" required placeholder="Scan unique item type QR code" /></label>
+            <l<label>
+              Scan new item QR code (required)
+              <div class="input-with-action">
+                <input name="qrCode" id="add-item-qr" required placeholder="Scan unique item type QR code" />
+                <button type="button" id="add-item-generate-qr" class="secondary">Generate QR</button>
+              </div>
+            </label>
+            <section id="add-item-qr-preview" class="restock-followup hidden">
+              <h3>Generated QR preview</h3>
+              <p class="helper">Save or print this QR image for labeling this item.</p>
+              <a id="add-item-qr-download-link" href="#" target="_blank" rel="noopener noreferrer">
+                <img id="add-item-qr-preview-image" class="qr-thumb" alt="Generated QR code preview" />
+              </a>
+            </section>
             <label class="checkbox-label">
               <input type="checkbox" id="add-item-skip-barcode" checked />
               Skip barcode scan (checked by default)
