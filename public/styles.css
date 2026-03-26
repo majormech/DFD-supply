@@ -152,12 +152,14 @@ button.success {
 
 .scanner-modal__card {
   width: min(560px, 96vw);
+  max-height: min(92vh, 760px);
   background: #fff;
   border-radius: 14px;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;
 }
 
 .scanner-modal video {
@@ -515,4 +517,21 @@ button.request-success {
   border: 1px solid #d3a700;
   border-radius: 8px;
   padding: 8px;
+}
+
+@media (max-width: 720px) {
+  .scanner-modal {
+    align-items: flex-start;
+    padding: 10px;
+  }
+
+  .scanner-modal__card {
+    width: 100%;
+    max-height: 96vh;
+  }
+
+  .issue-row--entry {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
 }
