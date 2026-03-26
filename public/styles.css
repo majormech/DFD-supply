@@ -35,6 +35,14 @@ button { border: 0; background: var(--primary); color: #fff; padding: 11px 14px;
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.qr-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
 .txn { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: #fbfcff; }
 .stats-row { display: flex; justify-content: space-between; gap: 14px; font-size: 1.05rem; }
 .inventory-search {
