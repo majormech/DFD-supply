@@ -6,6 +6,7 @@ import {
   createStationRequest,
   completeStationRequests,
   cancelStationRequest,
+  issueStationRequestItems,
   deleteItem,
   getAdminSettings,
   getAnalytics,
@@ -55,7 +56,11 @@ export default {
     if (url.pathname === '/api/requests/complete' && request.method === 'POST') {
       return completeStationRequests(request, env);
     }
-
+ 
+    if (url.pathname === '/api/requests/issue-items' && request.method === 'POST') {
+      return issueStationRequestItems(request, env);
+    }
+    
     if (url.pathname === '/api/requests/cancel' && request.method === 'POST') {
       return cancelStationRequest(request, env);
     }
