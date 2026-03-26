@@ -483,7 +483,10 @@ async function openModifyPrompt(itemId) {
         <input type="text" name="sku" value="${escapeHtml(item.sku)}" required />
       </label>
       <label>Item QR code
-        <input type="text" name="qrCode" value="${escapeHtml(item.qr_code || '')}" required />
+        <div class="input-with-action">
+          <input type="text" name="qrCode" value="${escapeHtml(item.qr_code || '')}" required />
+          <button type="button" class="secondary" data-action="scan-qr-code">Scan new QR code</button>
+        </div>
       </label>
       <label>Barcodes (comma separated list)
         <div class="input-with-action">
@@ -519,6 +522,11 @@ async function openModifyPrompt(itemId) {
 
   const barcodesInput = overlay.querySelector('input[name="barcodes"]');
   const scanBarcodeButton = overlay.querySelector('[data-action="scan-barcode"]');
+  const qrCodeInput = overlay.querySelector('input[name="qrCode"]');
+  const scanQrCodeButton = overlay.querySelector('[data-action="scan-qr-code"]');
+  if (qrCodeInput && scanQrCodeButton) {
+    attachScannerButton(qrCodeInput, scanQrCodeButton, 'QR code captured.');
+  }
   if (barcodesInput && scanBarcodeButton) {
     attachScannerButton(barcodesInput, scanBarcodeButton, 'Barcode added.', true);
   }
