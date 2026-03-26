@@ -264,7 +264,7 @@ export async function updateItem(request, env) {
             total_quantity = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-     `).bind(name, sku, qrCode, qrImageUrl ?? '', primaryBarcode, description, unitCost, lowStockLevel, totalQuantity, itemId),
+     `).bind(name, sku, qrCode, primaryBarcode, qrImageUrl ?? '', description, unitCost, lowStockLevel, totalQuantity, itemId),
       env.DB.prepare('DELETE FROM item_barcodes WHERE item_id = ?').bind(itemId),
       ...barcodes.map((barcode) => env.DB.prepare(`
         INSERT INTO item_barcodes (item_id, barcode)
