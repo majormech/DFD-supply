@@ -373,6 +373,11 @@ qr-preview-modal {
   background: #ffe7e7;
 }
 
+.request-history-card--partial {
+  border-color: #d3a700;
+  background: #fff8cc;
+}
+
 .request-history-card--canceled {
   border-color: #6c7280;
   background: #e5e7eb;
@@ -399,6 +404,12 @@ qr-preview-modal {
   border-top: 1px dashed #d3a700;
   padding-top: 8px;
   margin-top: 8px;
+}
+
+.request-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 button.request-success {
