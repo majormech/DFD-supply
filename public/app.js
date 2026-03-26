@@ -62,6 +62,23 @@ function getActiveStationRequests() {
   return state.stationRequests.filter((request) => !request.completed_at && !request.canceled_at);
 }
 
+function normalizeRequestedItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      const name = String(item?.name || '').trim();
+      const quantity = Number.parseInt(item?.quantity || 0, 10);
+      const issuedQuantity = Number.parseInt(item?.issuedQuantity || 0, 10);
+      if (!name || quantity <= 0) return null;
+      return {
+        name,
+        quantity,
+        issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+      };
+    })
+    .filter(Boolean);
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -103,7 +120,10 @@ async function loadBootstrap() {
   const data = await fetchJson('/api/bootstrap');
   state.items = data.items;
   state.stations = data.stations;
-  state.stationRequests = data.stationRequests || [];
+  state.stationRequests = (data.stationRequests || []).map((request) => ({
+    ...request,
+    requested_items: normalizeRequestedItems(request.requested_items),
+  }));
   state.recentTransactions = data.recentTransactions;
   return data;
 }
@@ -111,7 +131,11 @@ async function loadBootstrap() {
 function requestDetails(request) {
   const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
   const requestedSummary = requestedItems.length
-       ? `<ul>${requestedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}</ul>`
+       ? `<ul>${requestedItems.map((item) => {
+         const fulfilled = item.issuedQuantity >= item.quantity;
+         const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
+         return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}</li>`;
+       }).join('')}</ul>`
     : '<p class="helper">No inventory items listed.</p>';
 
   return `
@@ -640,9 +664,24 @@ function renderIssuePage() {
   stationList.innerHTML = state.stations.map((station) => {
     const requests = requestsByStation[station.id] || [];
     const hasOpenRequest = requests.length > 0;
-    const flattenedItems = requests.flatMap((request) => Array.isArray(request.requested_items) ? request.requested_items : []);
-    const requestItems = flattenedItems.length
-      ? `<ul class="issue-request-list">${flattenedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}</ul>`
+     const requestItems = requests.length
+      ? `<div class="issue-request-list">${requests.map((request) => {
+        const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+        const hasIssuedItems = items.some((item) => (item.issuedQuantity || 0) > 0);
+        const allIssued = items.length > 0 && items.every((item) => (item.issuedQuantity || 0) >= item.quantity);
+        return `
+          <article class="issue-request-card ${hasIssuedItems && !allIssued ? 'issue-request-card--partial' : ''}">
+            <strong>Request #${request.id}</strong>
+            <ul>
+              ${items.map((item) => {
+                const fulfilled = (item.issuedQuantity || 0) >= item.quantity;
+                const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
+                return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : '⬜ '}${escapeHtml(item.name)}: <strong>${item.quantity}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}</li>`;
+              }).join('')}
+            </ul>
+          </article>
+        `;
+      }).join('')}</div>`
       : '<p class="helper">No inventory items are currently requested.</p>';
 
     return `
@@ -826,28 +865,25 @@ if (!addForm) return;
 
 function buildRequestedItemsForStation(stationId) {
   const requests = getActiveStationRequests().filter((request) => Number(request.station_id) === Number(stationId));
-  const totals = new Map();
-  requests.forEach((request) => {
+  return requests.flatMap((request) => {
     const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
-    requestedItems.forEach((entry) => {
-      const name = String(entry.name || '').trim();
-      const quantity = Math.max(0, Number.parseInt(entry.quantity || 0, 10));
-      if (!name || quantity <= 0) return;
-      const key = name.toLowerCase();
-      const existing = totals.get(key) || { name, requestedQuantity: 0 };
-      existing.requestedQuantity += quantity;
-      totals.set(key, existing);
+    return requestedItems.map((entry, itemIndex) => {
+      const inventoryItem = state.items.find((item) => item.name.trim().toLowerCase() === String(entry.name || '').trim().toLowerCase());
+      const issuedQuantity = Number.parseInt(entry.issuedQuantity || 0, 10);
+      const quantity = Number.parseInt(entry.quantity || 0, 10);
+      const remaining = Math.max(0, quantity - (Number.isInteger(issuedQuantity) ? issuedQuantity : 0));
+      return {
+        requestId: request.id,
+        requestCreatedAt: request.created_at,
+        itemIndex,
+        itemId: inventoryItem?.id || null,
+        itemName: inventoryItem?.name || entry.name,
+        requestedQuantity: quantity,
+        issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
+        remainingQuantity: remaining,
+        available: Number.parseInt(inventoryItem?.total_quantity || 0, 10),
+      };
     });
-  });
- 
-  return [...totals.values()].map((entry) => {
-    const inventoryItem = state.items.find((item) => item.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
-    return {
-      ...entry,
-      itemId: inventoryItem?.id || null,
-      available: Number.parseInt(inventoryItem?.total_quantity || 0, 10),
-      itemName: inventoryItem?.name || entry.name,
-    };
   });
 }
 
@@ -862,10 +898,16 @@ function openIssueItemsModal(stationId) {
   const issueEntries = requestedItems
     .filter((item) => item.itemId && item.available > 0)
     .map((item) => ({
+      requestId: item.requestId,
       itemId: item.itemId,
       itemName: item.itemName,
       available: item.available,
-      issueQuantity: Math.min(Math.max(1, item.requestedQuantity), item.available),
+      equestedQuantity: item.requestedQuantity,
+      issuedQuantity: item.issuedQuantity,
+      remainingQuantity: item.remainingQuantity,
+      issueQuantity: item.remainingQuantity > 0 ? Math.min(Math.max(1, item.remainingQuantity), item.available) : 0,
+      isComplete: item.remainingQuantity <= 0,
+      isPartialRequest: item.issuedQuantity > 0 && item.remainingQuantity > 0,
       code: '',
       source: 'request',
     }));
@@ -921,14 +963,16 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   const renderIssueItems = () => {
     issueItemsEl.innerHTML = issueEntries.length
       ? issueEntries.map((item, index) => `
-        <div class="issue-row issue-row--entry" data-index="${index}">
+        <div class="issue-row issue-row--entry ${item.isPartialRequest ? 'issue-row--partial' : ''}" data-index="${index}">
+          <input type="checkbox" ${item.isComplete ? 'checked' : ''} disabled />
           <div>
-            <strong>${escapeHtml(item.itemName)}</strong>
+            <strong class="${item.isComplete ? 'issued-line' : ''}">${escapeHtml(item.itemName)}</strong>
             ${item.source === 'request' ? '<div class="helper">Loaded from request queue</div>' : ''}
             ${item.code ? `<div class="helper">Scanned code: ${escapeHtml(item.code)}</div>` : ''}
+            <div class="helper">Requested: ${item.requestedQuantity} · Issued: ${item.issuedQuantity} · Remaining: ${item.remainingQuantity}</div>
           </div>
           <label>Quantity to issue
-            <input type="number" min="1" max="${Math.max(1, item.available)}" value="${item.issueQuantity}" data-field="issueQty" />
+            <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete ? 'disabled' : ''} />
           </label>
           <div class="helper">In stock: ${item.available}</div>
         </div>
@@ -937,7 +981,8 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   };
 
   const refreshSubmitState = () => {
-    const canSubmit = Boolean(confirmPulled.checked && issueEntries.length);
+    const openEntries = issueEntries.filter((item) => !item.isComplete);
+    const canSubmit = Boolean(confirmPulled.checked && openEntries.length);
     submitButton.disabled = !canSubmit;
   };
 
@@ -972,7 +1017,12 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
         itemId: matchedItem.id,
         itemName: matchedItem.name,
         available,
+       requestedQuantity: 1,
+        issuedQuantity: 0,
+        remainingQuantity: 1,
         issueQuantity: 1,
+        isComplete: false,
+        isPartialRequest: false,
         code: trimmed,
         source: mode,
       });
@@ -1043,13 +1093,14 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
       return;
     }
 
-    const overLimit = issueEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available);
+    const pendingEntries = issueEntries.filter((item) => !item.isComplete);
+    const overLimit = pendingEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available || item.issueQuantity > item.remainingQuantity);
     if (overLimit) {
-      showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${overLimit.available}.`, true);
+      showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${Math.min(overLimit.available, overLimit.remainingQuantity)}.`, true);
       return;
     }
 
-    const summaryLines = issueEntries.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`);
+ const summaryLines = pendingEntries.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`);
     issueSummary.classList.remove('hidden');
     issueSummary.innerHTML = `<strong>Issue summary</strong><ul>${summaryLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
     const summary = summaryLines.join('\n');
@@ -1057,7 +1108,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
     if (!shouldSubmit) return;
 
     try {
-     for (const item of issueEntries) {
+     for (const item of pendingEntries) {
         if (!item.itemId) continue;
         await fetchJson('/api/inventory/adjust', {
           method: 'POST',
@@ -1073,15 +1124,23 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
           }),
         });
       }
-      await fetchJson('/api/requests/complete', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          stationId: station.id,
-          completedBy: issuedBy,
-        }),
-      });
-    
+      const requestItemPayload = pendingEntries
+        .filter((item) => item.requestId)
+        .map((item) => ({
+          requestId: item.requestId,
+          itemName: item.itemName,
+          quantity: item.issueQuantity,
+        }));
+      if (requestItemPayload.length) {
+        await fetchJson('/api/requests/issue-items', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            issuedBy,
+            items: requestItemPayload,
+          }),
+        });
+      }
       window.localStorage.setItem(lastIssuerKey, issuedBy);
       close();
       await loadBootstrap();
