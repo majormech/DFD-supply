@@ -491,7 +491,12 @@ button.request-success {
 }
 
 .issue-row--entry {
-   grid-template-columns: 26px 1fr 180px 130px;
+   grid-template-columns: 150px minmax(0, 1fr) 180px 130px;
+  align-items: start;
+}
+
+.issue-row--entry .checkbox-label {
+  line-height: 1.2;
 }
 
 .issue-row--partial {
