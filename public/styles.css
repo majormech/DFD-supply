@@ -199,6 +199,35 @@ button.success {
   width: auto;
 }
 
+.manual-item-list {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.manual-item-list__option {
+  width: 100%;
+  text-align: left;
+  background: #f7f9fd;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manual-item-list__option--active {
+  border-color: var(--brand);
+  background: #e8efff;
+}
+
 .station-status-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
