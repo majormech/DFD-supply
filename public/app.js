@@ -1508,13 +1508,126 @@ function renderAnalytics(data) {
     : '<tr><td colspan="3">No station usage in selected period.</td></tr>';
 
   const trend = document.querySelector('#trend-bars');
-  const maxCost = Math.max(1, ...state.analytics.trend.map((row) => Number(row.used_cost || 0)));
-  trend.innerHTML = state.analytics.trend.length
-    ? state.analytics.trend.map((row) => {
-      const width = Math.max(2, Math.round((Number(row.used_cost || 0) / maxCost) * 100));
-      return `<div class="trend-row"><span>${row.day}</span><div class="trend-bar"><i style="width:${width}%"></i></div><strong>${currency(row.used_cost)}</strong></div>`;
-    }).join('')
+ const legend = document.querySelector('#analytics-chart-legend');
+  const chartType = document.querySelector('#analytics-chart-type')?.value || 'bar';
+  const metric = document.querySelector('#analytics-metric')?.value || 'used_qty';
+  const interval = document.querySelector('#analytics-interval')?.value || 'day';
+  const yLabel = metric === 'used_cost' ? 'Cost used' : 'Units used';
+  const formatMetric = (value) => (metric === 'used_cost' ? currency(value) : `${Number(value || 0)}`);
+
+  const transactions = state.analytics.transactions || [];
+  const grouped = new Map();
+  transactions.forEach((row) => {
+    const date = new Date(row.created_at);
+    if (Number.isNaN(date.getTime())) return;
+    const key = interval === 'month'
+      ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+      : interval === 'week'
+        ? `${date.getUTCFullYear()}-W${String(Math.ceil((((date - new Date(Date.UTC(date.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7)).padStart(2, '0')}`
+        : date.toISOString().slice(0, 10);
+    const value = metric === 'used_cost' ? Number(row.used_cost || 0) : Number(row.used_qty || 0);
+    grouped.set(key, (grouped.get(key) || 0) + value);
+  });
+
+  const series = [...grouped.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const maxValue = Math.max(1, ...series.map((entry) => Number(entry.value || 0)));
+  const totalValue = series.reduce((sum, entry) => sum + Number(entry.value || 0), 0);
+
+  const renderBar = () => series.map((entry) => {
+    const width = Math.max(2, Math.round((Number(entry.value || 0) / maxValue) * 100));
+    return `<div class="trend-row"><span>${entry.label}</span><div class="trend-bar"><i style="width:${width}%"></i></div><strong>${formatMetric(entry.value)}</strong></div>`;
+  }).join('');
+
+  const renderLineLike = (isArea = false) => {
+    if (!series.length) return '<p class="helper">No trend data in selected period.</p>';
+    const width = 960;
+    const height = 220;
+    const pad = 36;
+    const step = series.length > 1 ? (width - (pad * 2)) / (series.length - 1) : 0;
+    const points = series.map((entry, idx) => {
+      const x = pad + (idx * step);
+      const y = height - pad - ((Number(entry.value || 0) / maxValue) * (height - (pad * 2)));
+      return { x, y, value: entry.value, label: entry.label };
+    });
+    const polyline = points.map((p) => `${p.x},${p.y}`).join(' ');
+    const area = `${pad},${height - pad} ${polyline} ${pad + (step * (series.length - 1))},${height - pad}`;
+    return `
+      <svg viewBox="0 0 ${width} ${height}" class="trend-svg" role="img" aria-label="${yLabel} trend">
+        ${isArea ? `<polygon points="${area}" fill="rgba(11, 95, 255, 0.22)" />` : ''}
+        <polyline points="${polyline}" fill="none" stroke="#0b5fff" stroke-width="3" />
+        ${points.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#0b5fff"><title>${p.label}: ${formatMetric(p.value)}</title></circle>`).join('')}
+      </svg>
+    `;
+  };
+
+  const renderPie = () => {
+    if (!series.length || totalValue <= 0) return '<p class="helper">No trend data in selected period.</p>';
+    let offset = 0;
+    const radius = 56;
+    const circumference = 2 * Math.PI * radius;
+    const colors = ['#0b5fff', '#2f7dff', '#649dff', '#90b8ff', '#b2ceff', '#d6e5ff'];
+    const slices = series.map((entry, idx) => {
+      const ratio = Number(entry.value || 0) / totalValue;
+      const dash = `${Math.max(0.0001, ratio * circumference)} ${circumference}`;
+      const node = `<circle r="${radius}" cx="80" cy="80" fill="transparent" stroke="${colors[idx % colors.length]}" stroke-width="26" stroke-dasharray="${dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 80 80)"><title>${entry.label}: ${formatMetric(entry.value)}</title></circle>`;
+      offset += ratio * circumference;
+      return node;
+    }).join('');
+    return `<div class="chart-pie-wrap"><svg viewBox="0 0 160 160" class="trend-pie">${slices}</svg>${renderBar()}</div>`;
+  };
+
+  const renderScatter = () => {
+    if (!series.length) return '<p class="helper">No trend data in selected period.</p>';
+    const width = 960;
+    const height = 220;
+    const pad = 36;
+    const step = series.length > 1 ? (width - (pad * 2)) / (series.length - 1) : 0;
+    return `
+      <svg viewBox="0 0 ${width} ${height}" class="trend-svg" role="img" aria-label="${yLabel} scatter plot">
+        <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#d7e0ea" />
+        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#d7e0ea" />
+        ${series.map((entry, idx) => {
+          const x = pad + (idx * step);
+          const y = height - pad - ((Number(entry.value || 0) / maxValue) * (height - (pad * 2)));
+          return `<circle cx="${x}" cy="${y}" r="5" fill="#0b5fff"><title>${entry.label}: ${formatMetric(entry.value)}</title></circle>`;
+        }).join('')}
+      </svg>
+    `;
+  };
+
+  const renderHistogram = () => {
+    if (!series.length) return '<p class="helper">No trend data in selected period.</p>';
+    const bins = [0, 0, 0, 0, 0];
+    series.forEach((entry) => {
+      const normalized = maxValue ? Number(entry.value || 0) / maxValue : 0;
+      const bin = Math.min(4, Math.floor(normalized * 5));
+      bins[bin] += 1;
+    });
+    const maxBin = Math.max(1, ...bins);
+    return bins.map((count, idx) => {
+      const width = Math.max(2, Math.round((count / maxBin) * 100));
+      return `<div class="trend-row"><span>Bin ${idx + 1}</span><div class="trend-bar"><i style="width:${width}%"></i></div><strong>${count}</strong></div>`;
+    }).join('');
+  };
+
+  const chartByType = {
+    bar: renderBar,
+    line: () => renderLineLike(false),
+    area: () => renderLineLike(true),
+    pie: renderPie,
+    scatter: renderScatter,
+    histogram: renderHistogram,
+  };
+
+  trend.innerHTML = series.length
+    ? (chartByType[chartType] || renderBar)()
     : '<p class="helper">No trend data in selected period.</p>';
+  if (legend) {
+    legend.textContent = `Chart: ${chartType.toUpperCase()} · Metric: ${metric === 'used_cost' ? 'Cost used' : 'Units used'} · Grouped by ${interval}.`;
+  }
 
    const txTable = document.querySelector('#usage-transactions');
   if (txTable) {
@@ -1635,26 +1748,47 @@ async function wireSearchPage() {
   const resetButton = document.querySelector('#analytics-reset');
   const exportButton = document.querySelector('#analytics-export');
   const exportFormat = document.querySelector('#analytics-export-format');
+  const chartTypeSelect = document.querySelector('#analytics-chart-type');
+  const metricSelect = document.querySelector('#analytics-metric');
+  const intervalSelect = document.querySelector('#analytics-interval');
 
   stationSelect.innerHTML = ['<option value="">All stations</option>', ...state.stations.map((station) => `<option value="${station.id}">${station.name}</option>`)].join('');
   itemSelect.innerHTML = ['<option value="">All items</option>', ...state.items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} (${escapeHtml(item.sku)})</option>`)].join('');
   
+  const today = new Date();
+  const ytdStart = `${today.getUTCFullYear()}-01-01`;
+  const todayIso = today.toISOString().slice(0, 10);
+  startDateInput.value = ytdStart;
+  endDateInput.value = todayIso;
+  select.value = 'ytd';
+  
   const load = async () => {
-     const params = new URLSearchParams({ days: select.value });
+    const quickRange = select.value;
+    const params = new URLSearchParams();
+    if (quickRange !== 'ytd') {
+      params.set('days', quickRange);
+    }
     if (searchInput.value.trim()) params.set('search', searchInput.value.trim());
     if (stationSelect.value) params.set('stationId', stationSelect.value);
     if (itemSelect.value) params.set('itemId', itemSelect.value);
-    if (startDateInput.value) params.set('startDate', startDateInput.value);
-    if (endDateInput.value) params.set('endDate', endDateInput.value);
+    if (quickRange === 'ytd' || startDateInput.value) params.set('startDate', startDateInput.value || ytdStart);
+    if (quickRange === 'ytd' || endDateInput.value) params.set('endDate', endDateInput.value || todayIso);
     const data = await fetchJson(`/api/analytics?${params.toString()}`);
     renderAnalytics(data);
      if (summary) {
-      summary.textContent = `Showing ${data.transactions?.length || 0} usage transactions.`;
+      const selectedItem = itemSelect.selectedOptions?.[0]?.textContent || 'All items';
+      summary.textContent = `Showing ${data.transactions?.length || 0} usage transactions. Item scope: ${selectedItem}. Date range: ${params.get('startDate') || 'rolling'} to ${params.get('endDate') || 'today'}.`;
     }
   };
   
   select.addEventListener('change', () => {
-    if (startDateInput.value || endDateInput.value) return;
+    if (select.value === 'ytd') {
+      startDateInput.value = ytdStart;
+      endDateInput.value = todayIso;
+    } else {
+      startDateInput.value = '';
+      endDateInput.value = '';
+    }
     load().catch((error) => showToast(error.message, true));
   });
   applyButton?.addEventListener('click', () => load().catch((error) => showToast(error.message, true)));
@@ -1664,10 +1798,15 @@ async function wireSearchPage() {
     itemSelect.value = '';
     startDateInput.value = '';
     endDateInput.value = '';
-    select.value = '30';
+    startDateInput.value = ytdStart;
+    endDateInput.value = todayIso;
+    select.value = 'ytd';
     load().catch((error) => showToast(error.message, true));
   });
   exportButton?.addEventListener('click', () => exportAnalytics(exportFormat.value));
+  [chartTypeSelect, metricSelect, intervalSelect].forEach((control) => control?.addEventListener('change', () => {
+    renderAnalytics(state.analytics);
+  }));
 
   await load();
 }
