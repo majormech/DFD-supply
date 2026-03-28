@@ -22,13 +22,16 @@
       </header>
 
       <section class="panel stack wide">
+        <h2>Data entry search</h2>
         <div class="search-filter-grid">
           <label>Quick time range
             <select id="days-select">
+              <option value="ytd">Year to date (default)</option>
               <option value="30">Last 30 days</option>
               <option value="60">Last 60 days</option>
               <option value="90">Last 90 days</option>
               <option value="180">Last 180 days</option>
+              <option value="365">Last 365 days</option>
             </select>
           </label>
           <label>Search item/SKU/station
@@ -65,6 +68,35 @@
         </div>
         <p class="helper" id="analytics-summary"></p>
       </section>
+      <section class="panel stack wide">
+        <h2>Inventory data analytics</h2>
+        <div class="search-filter-grid">
+          <label>Chart type
+            <select id="analytics-chart-type">
+              <option value="bar">Bar / Column</option>
+              <option value="line">Line graph</option>
+              <option value="pie">Pie / Doughnut</option>
+              <option value="scatter">Scatter / Dot plot</option>
+              <option value="histogram">Histogram</option>
+              <option value="area">Area graph</option>
+            </select>
+          </label>
+          <label>Metric
+            <select id="analytics-metric">
+              <option value="used_qty">Units used</option>
+              <option value="used_cost">Cost used</option>
+            </select>
+          </label>
+          <label>Trend grouping
+            <select id="analytics-interval">
+              <option value="day">Daily</option>
+              <option value="week">Weekly</option>
+              <option value="month">Monthly</option>
+            </select>
+          </label>
+        </div>
+        <p class="helper">When you search/select a specific item, charts show that item's total usage over time (including station-level context in the tables below).</p>
+      </section>
 
       <main class="layout">
         <section class="panel stack">
@@ -76,8 +108,9 @@
           <div class="table-wrap"><table><thead><tr><th>Station</th><th>Qty Used</th><th>Cost Used</th></tr></thead><tbody id="by-station"></tbody></table></div>
         </section>
         <section class="panel stack wide">
-          <h2>Daily trend</h2>
+          <h2 id="analytics-trend-title">Usage trend over time</h2>
           <div id="trend-bars"></div>
+          <div id="analytics-chart-legend" class="helper"></div>
         </section>
         <section class="panel stack wide">
           <h2>Usage transactions</h2>
@@ -86,7 +119,5 @@
       </main>
     </div>
     <script type="module" src="/app.js"></script>
-  </body>
-</html>
   </body>
 </html>
