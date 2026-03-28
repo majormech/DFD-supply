@@ -560,3 +560,22 @@ button.request-success {
     grid-template-columns: 1fr;
   }
 }
+
+.howto-toc {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.howto-toc a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.howto-section ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
