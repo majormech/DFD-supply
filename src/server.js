@@ -702,10 +702,10 @@ export async function createStationRequest(request, env) {
   const body = await parseBody(request);
   const stationCode = (body?.stationCode || '').trim();
   const requesterName = (body?.requesterName || '').trim();
-  const otherItems = (body?.otherItems || '').trim();
   const requestedItems = Array.isArray(body?.items)
     ? normalizeRequestedItems(body.items)
     : [];
+   const otherItems = normalizeOtherRequestedItems(body?.otherItems);
 
   if (!stationCode) return badRequest('stationCode is required');
   if (!requesterName) return badRequest('requesterName is required');
@@ -714,10 +714,12 @@ export async function createStationRequest(request, env) {
   const station = await env.DB.prepare('SELECT id, name, code FROM stations WHERE code = ?').bind(stationCode).first();
   if (!station) return badRequest('Invalid station', 404);
 
+  const otherItemsJson = otherItems.length ? JSON.stringify(otherItems) : '';
+
   await env.DB.prepare(`
     INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items)
     VALUES (?, ?, ?, NULLIF(?, ''))
-  `).bind(station.id, requesterName, JSON.stringify(requestedItems), JSON.stringify(otherItems)).run();
+  `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItemsJson).run();
 
   const settings = await getSettings(env.DB);
   const lines = requestedItems.map((item) => `- ${item.name}: ${item.quantity}`).join('\n');
