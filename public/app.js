@@ -1213,74 +1213,150 @@ function openIssueItemsModal(stationId) {
   const openAddMissingItemModal = async (entryIndex) => {
     const entry = unresolvedEntries[entryIndex];
     if (!entry) return;
-    const generatedQr = buildGeneratedQrCode();
+    
     const defaultIssuedBy = identityInput.value.trim() || rememberedIdentity || 'Supply Officer';
     const quantityDefault = Math.max(1, entry.remainingQuantity || entry.requestedQuantity || 1);
     const noteDefault = `Added from request #${entry.requestId} for ${station.name}.`;
-    const quantityText = window.prompt(`Initial inventory quantity for "${entry.itemName}"`, String(quantityDefault));
-    if (quantityText == null) return;
-    const totalQuantity = Number.parseInt(quantityText, 10);
-    if (!Number.isInteger(totalQuantity) || totalQuantity < 0) {
-      showToast('Quantity must be 0 or greater.', true);
-      return;
-    }
-    const performedBy = window.prompt('Who is creating this item?', defaultIssuedBy);
-    if (performedBy == null) return;
-    if (!performedBy.trim()) {
-      showToast('Name or employee number is required.', true);
-      return;
-    }
+      const generatedQr = buildGeneratedQrCode();
+    const modal = document.createElement('div');
+    modal.className = 'scanner-modal';
+    modal.innerHTML = `
+      <div class="scanner-modal__card">
+        <h3>Add missing item to inventory</h3>
+        <p class="helper">This mirrors the Add new inventory item form and pre-fills details from the station request.</p>
+        <form data-role="add-missing-item-form" class="stack compact">
+          <label>
+            Scan new item QR code (required)
+            <div class="input-with-action">
+              <input name="qrCode" data-field="qrCode" required />
+              <button type="button" class="secondary" data-action="generate-qr">Generate QR</button>
+            </div>
+          </label>
+          <section data-role="qr-preview" class="restock-followup hidden">
+            <h3>Generated QR preview</h3>
+            <p class="helper">Save or print this QR image for labeling this item.</p>
+            <a data-role="qr-download-link" href="#" target="_blank" rel="noopener noreferrer">
+              <img data-role="qr-preview-image" class="qr-thumb" alt="Generated QR code preview" />
+            </a>
+          </section>
+          <label class="checkbox-label">
+            <input type="checkbox" name="skipBarcodeCapture" data-field="skipBarcode" checked />
+            Skip barcode scan (checked by default)
+          </label>
+          <label>Scan item barcode (optional, can add more later)<input name="barcodes" data-field="barcodes" placeholder="Scan barcode(s), separated by commas" /></label>
+          <label>Item name<input name="name" data-field="name" required /></label>
+          <label>Quantity being restocked<input name="totalQuantity" data-field="totalQuantity" type="number" min="1" required /></label>
+          <label>Low stock / reorder level<input name="lowStockLevel" data-field="lowStockLevel" type="number" min="0" required /></label>
+          <label>Cost per unit (optional)<input name="unitCost" data-field="unitCost" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+          <label>Date and time<input name="performedAt" data-field="performedAt" type="datetime-local" required /></label>
+          <label>Completed by (name or employee number)<input name="performedBy" data-field="performedBy" required /></label>
+          <label>Notes (optional)<input name="note" data-field="note" /></label>
+          <label>Description (optional)<input name="description" data-field="description" /></label>
+          <label>SKU (optional; auto-generated if blank)<input name="sku" data-field="sku" placeholder="Optional custom SKU" /></label>
+          <div class="scanner-modal__actions">
+            <button type="button" class="ghost" data-action="cancel-add-missing">Cancel</button>
+            <button type="submit" class="request-success">Add item</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
 
-    try {
-      const payload = {
-        name: entry.itemName,
-        description: entry.purpose || 'Added from station request item not found in inventory list.',
-        totalQuantity,
-        lowStockLevel: Math.min(totalQuantity, 1),
-        unitCost: 0,
-        qrCode: generatedQr,
-        skipBarcodeCapture: 'true',
-        performedBy: performedBy.trim(),
-        note: noteDefault,
-      };
-      const response = await fetchJson('/api/items', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const createdItem = response?.item;
-      if (!createdItem?.id) {
-        showToast('Item was created but could not be loaded into issue list.', true);
+    const closeModal = () => modal.remove();
+    const addMissingForm = modal.querySelector('[data-role="add-missing-item-form"]');
+    const qrCodeInput = modal.querySelector('[data-field="qrCode"]');
+    const skipBarcodeInput = modal.querySelector('[data-field="skipBarcode"]');
+    const barcodeInput = modal.querySelector('[data-field="barcodes"]');
+    const qrPreviewSection = modal.querySelector('[data-role="qr-preview"]');
+    const qrPreviewImage = modal.querySelector('[data-role="qr-preview-image"]');
+    const qrDownloadLink = modal.querySelector('[data-role="qr-download-link"]');
+
+    const syncBarcodeState = () => {
+      const disabled = skipBarcodeInput.checked;
+      barcodeInput.disabled = disabled;
+      if (disabled) barcodeInput.value = '';
+    };
+
+    const renderQrPreview = (value) => {
+      const codeValue = String(value || '').trim();
+      if (!codeValue) {
+        qrPreviewSection?.classList.add('hidden');
+        if (qrPreviewImage) qrPreviewImage.removeAttribute('src');
+        if (qrDownloadLink) qrDownloadLink.setAttribute('href', '#');
         return;
       }
+      const imageUrl = buildQrImageUrl(codeValue);
+      if (qrPreviewImage) qrPreviewImage.src = imageUrl;
+      if (qrDownloadLink) qrDownloadLink.href = imageUrl;
+      qrPreviewSection?.classList.remove('hidden');
+    };
 
-      unresolvedEntries.splice(entryIndex, 1);
-      issueEntries.push({
-        requestId: entry.requestId,
-        itemId: createdItem.id,
-        itemName: createdItem.name || entry.itemName,
-        available: Number.parseInt(createdItem.total_quantity || 0, 10),
-        requestedQuantity: entry.requestedQuantity,
-        issuedQuantity: entry.issuedQuantity,
-        remainingQuantity: entry.remainingQuantity,
-        issueQuantity: Math.max(1, Math.min(entry.remainingQuantity, Number.parseInt(createdItem.total_quantity || 0, 10) || entry.remainingQuantity)),
-        isComplete: entry.remainingQuantity <= 0,
-        markedUnable: false,
-        isPartialRequest: entry.issuedQuantity > 0 && entry.remainingQuantity > 0,
-        code: createdItem.qr_code || '',
-        source: 'request',
-        purpose: entry.purpose || '',
-        isNonInventory: false,
-      });
-      await loadBootstrap();
-      renderIssueItems();
-      renderUnresolvedItems();
-      refreshSubmitState();
-      showToast(`${entry.itemName} was added to inventory and prefilled in the issue list.`);
-    } catch (error) {
-      showToast(error.message, true);
-    }
-  };
+    qrCodeInput.value = generatedQr;
+    modal.querySelector('[data-field="name"]').value = entry.itemName;
+    modal.querySelector('[data-field="totalQuantity"]').value = String(quantityDefault);
+    modal.querySelector('[data-field="lowStockLevel"]').value = String(Math.min(quantityDefault, 1));
+    modal.querySelector('[data-field="unitCost"]').value = '0';
+    modal.querySelector('[data-field="performedAt"]').value = formatDateTimeLocal();
+    modal.querySelector('[data-field="performedBy"]').value = defaultIssuedBy;
+    modal.querySelector('[data-field="note"]').value = noteDefault;
+    modal.querySelector('[data-field="description"]').value = entry.purpose || 'Added from station request item not found in inventory list.';
+    syncBarcodeState();
+    renderQrPreview(generatedQr);
+
+    modal.querySelector('[data-action="cancel-add-missing"]')?.addEventListener('click', closeModal);
+    modal.querySelector('[data-action="generate-qr"]')?.addEventListener('click', () => {
+      qrCodeInput.value = buildGeneratedQrCode();
+      renderQrPreview(qrCodeInput.value);
+    });
+    skipBarcodeInput?.addEventListener('change', syncBarcodeState);
+    qrCodeInput?.addEventListener('input', () => renderQrPreview(qrCodeInput.value));
+
+    addMissingForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!addMissingForm.reportValidity()) return;
+      try {
+        const payload = formToPayload(addMissingForm);
+        payload.skipBarcodeCapture = skipBarcodeInput.checked ? 'true' : 'false';
+        const response = await fetchJson('/api/items', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const createdItem = response?.item;
+        if (!createdItem?.id) {
+          showToast('Item was created but could not be loaded into issue list.', true);
+          return;
+        }
+
+        unresolvedEntries.splice(entryIndex, 1);
+        issueEntries.push({
+          requestId: entry.requestId,
+          itemId: createdItem.id,
+          itemName: createdItem.name || entry.itemName,
+          available: Number.parseInt(createdItem.total_quantity || 0, 10),
+          requestedQuantity: entry.requestedQuantity,
+          issuedQuantity: entry.issuedQuantity,
+          remainingQuantity: entry.remainingQuantity,
+          issueQuantity: Math.max(1, Math.min(entry.remainingQuantity, Number.parseInt(createdItem.total_quantity || 0, 10) || entry.remainingQuantity)),
+          isComplete: entry.remainingQuantity <= 0,
+          markedUnable: false,
+          isPartialRequest: entry.issuedQuantity > 0 && entry.remainingQuantity > 0,
+          code: createdItem.qr_code || '',
+          source: 'request',
+          purpose: entry.purpose || '',
+          isNonInventory: false,
+        });
+        closeModal();
+        await loadBootstrap();
+        renderIssueItems();
+        renderUnresolvedItems();
+        refreshSubmitState();
+        showToast(`${entry.itemName} was added to inventory and prefilled in the issue list.`);
+      } catch (error) {
+        showToast(error.message, true);
+      }
+    });
+    };
   
   const refreshSubmitState = () => {
     const openEntries = issueEntries.filter((item) => !item.isComplete && !item.markedUnable);
