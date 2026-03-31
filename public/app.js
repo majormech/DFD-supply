@@ -1979,53 +1979,165 @@ function openModifyRequestModal(requestId, stationCode) {
     showToast('Request not found.', true);
     return;
   }
-  const existingItems = Array.isArray(request.requested_items) ? request.requested_items : [];
-  const modifiedBy = window.prompt('Who is making this modification?');
-  if (!modifiedBy) return;
-  const modificationReason = window.prompt('Why is this request being modified?');
-  if (!modificationReason) {
-    showToast('Modification reason is required.', true);
-    return;
-  }
-  const updatedItemsRaw = window.prompt(
-    'Enter updated items as "Item Name:Qty, Item Name:Qty"',
-    existingItems.map((item) => `${item.name}:${item.quantity}`).join(', '),
-  );
-  if (!updatedItemsRaw) return;
+  const addedItems = (Array.isArray(request.requested_items) ? request.requested_items : [])
+    .map((item) => ({
+      name: String(item?.name || '').trim(),
+      quantity: Number.parseInt(item?.quantity || 0, 10),
+    }))
+    .filter((item) => item.name && item.quantity > 0);
 
-  const parsedItems = updatedItemsRaw
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const [namePart, qtyPart] = entry.split(':');
-      const name = String(namePart || '').trim();
-      const quantity = Number.parseInt(String(qtyPart || '').trim(), 10);
-      return { name, quantity };
-    })
-    .filter((entry) => entry.name && entry.quantity > 0);
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Modify request</h3>
+      <label>Modified by
+        <input type="text" name="modifiedBy" placeholder="Name" required />
+      </label>
+      <label>Modification reason
+        <input type="text" name="modificationReason" placeholder="Reason for request update" required />
+      </label>
+      <div class="modify-summary stack compact">
+        <strong>Requested items</strong>
+        <div data-role="modifyRequestItems" class="stack compact"></div>
+      </div>
+      <div class="modify-summary stack compact">
+        <strong>Add inventory item</strong>
+        <label>Item
+          <select name="addItemSelect"></select>
+        </label>
+        <label>Quantity
+          <input type="number" name="addItemQty" min="1" value="1" />
+        </label>
+        <button type="button" data-action="add-item" class="secondary">Add item</button>
+      </div>
+      <div class="scanner-modal__actions">
+        <button type="button" data-action="cancel" class="ghost">Cancel</button>
+        <button type="button" data-action="submit">Save changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
 
-  if (!parsedItems.length) {
-    showToast('Please provide at least one valid item in Item:Qty format.', true);
-    return;
-  }
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
 
-  fetchJson('/api/requests/modify', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      requestId,
-      modifiedBy,
-      modificationReason,
-      items: parsedItems,
-    }),
-  })
-    .then(async () => {
+  const modifiedByInput = overlay.querySelector('input[name="modifiedBy"]');
+  const modificationReasonInput = overlay.querySelector('input[name="modificationReason"]');
+  const addItemSelect = overlay.querySelector('select[name="addItemSelect"]');
+  const addItemQtyInput = overlay.querySelector('input[name="addItemQty"]');
+  const requestItemsEl = overlay.querySelector('[data-role="modifyRequestItems"]');
+
+  addItemSelect.innerHTML = `<option value="">Select an item</option>${state.items
+    .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)} (${escapeHtml(item.sku)})</option>`)
+    .join('')}`;
+
+  const renderAddedItems = () => {
+    if (!addedItems.length) {
+      requestItemsEl.innerHTML = '<p class="helper">No items in this request.</p>';
+      return;
+    }
+    requestItemsEl.innerHTML = `
+      ${addedItems.map((item, index) => `
+        <div class="inline-actions">
+          <strong>${escapeHtml(item.name)}</strong>
+          <input type="number" min="1" value="${escapeHtml(item.quantity)}" data-role="item-qty" data-index="${index}" />
+          <button type="button" class="danger" data-action="remove-item" data-index="${index}">Remove</button>
+        </div>
+      `).join('')}
+    `;
+
+    requestItemsEl.querySelectorAll('[data-role="item-qty"]').forEach((input) => {
+      input.addEventListener('input', () => {
+        const index = Number.parseInt(input.dataset.index || '-1', 10);
+        if (index < 0) return;
+        const nextQuantity = Number.parseInt(input.value || '0', 10);
+        addedItems[index].quantity = Number.isInteger(nextQuantity) && nextQuantity > 0 ? nextQuantity : 0;
+      });
+    });
+
+    requestItemsEl.querySelectorAll('[data-action="remove-item"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const index = Number.parseInt(button.dataset.index || '-1', 10);
+        if (index < 0) return;
+        addedItems.splice(index, 1);
+        renderAddedItems();
+      });
+    });
+  };
+
+  renderAddedItems();
+
+  overlay.querySelector('[data-action="add-item"]').addEventListener('click', () => {
+    const itemName = String(addItemSelect.value || '').trim();
+    const quantity = Number.parseInt(addItemQtyInput.value || '0', 10);
+    if (!itemName) {
+      showToast('Select an item to add.', true);
+      return;
+    }
+    if (!quantity || quantity <= 0) {
+      showToast('Enter a valid quantity to add.', true);
+      return;
+    }
+
+    const existing = addedItems.find((item) => item.name === itemName);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      addedItems.push({ name: itemName, quantity });
+    }
+
+    addItemQtyInput.value = '1';
+    addItemSelect.value = '';
+    renderAddedItems();
+    showToast('Item added to request.');
+  });
+
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-action="submit"]').addEventListener('click', async () => {
+    const modifiedBy = modifiedByInput.value.trim();
+    const modificationReason = modificationReasonInput.value.trim();
+    const parsedItems = addedItems
+      .map((item) => ({
+        name: String(item.name || '').trim(),
+        quantity: Number.parseInt(item.quantity || 0, 10),
+      }))
+      .filter((item) => item.name && item.quantity > 0);
+
+    if (!modifiedBy) {
+      showToast('Enter who is making this modification.', true);
+      return;
+    }
+    if (!modificationReason) {
+      showToast('Modification reason is required.', true);
+      return;
+    }
+    if (!parsedItems.length) {
+      showToast('Add at least one valid item before saving.', true);
+      return;
+    }
+
+    try {
+      await fetchJson('/api/requests/modify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId,
+          modifiedBy,
+          modificationReason,
+          items: parsedItems,
+        }),
+      });
+      close();
       await loadBootstrap();
       renderRecentStationRequests(stationCode);
       showToast('Request modified.');
-    })
-    .catch((error) => showToast(error.message, true));
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
 }
 
 function openRequestItemModal(stationCode) {
