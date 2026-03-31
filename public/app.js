@@ -1942,30 +1942,8 @@ const hasIssuedItems = items.some((item) => {
     `;
   }).join('');
   target.querySelectorAll('[data-action="cancel-request"]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const canceledBy = window.prompt('Who is canceling this request?');
-      if (!canceledBy) return;
-      const cancelReason = window.prompt('Why is this request being canceled?');
-      if (!cancelReason) {
-        showToast('Cancel reason is required.', true);
-        return;
-      }
-      try {
-        await fetchJson('/api/requests/cancel', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            requestId: button.dataset.requestId,
-            canceledBy,
-            cancelReason,
-          }),
-        });
-        await loadBootstrap();
-        renderRecentStationRequests(button.dataset.stationCode);
-        showToast('Request canceled.');
-      } catch (error) {
-        showToast(error.message, true);
-      }
+    button.addEventListener('click', () => {
+      openCancelRequestModal(button.dataset.requestId, button.dataset.stationCode);
     });
   });
 
@@ -1973,6 +1951,73 @@ const hasIssuedItems = items.some((item) => {
     button.addEventListener('click', () => {
       openModifyRequestModal(button.dataset.requestId, button.dataset.stationCode);
     });
+  });
+}
+
+function openCancelRequestModal(requestId, stationCode) {
+  const request = state.stationRequests.find((entry) => String(entry.id) === String(requestId));
+  if (!request) {
+    showToast('Request not found.', true);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal';
+  overlay.innerHTML = `
+    <div class="scanner-modal__card">
+      <h3>Cancel request</h3>
+      <p class="helper">Request #${escapeHtml(request.id)} · ${escapeHtml(stationCode)}</p>
+      <label>Canceled by
+        <input type="text" name="canceledBy" placeholder="Name" required />
+      </label>
+      <label>Cancellation reason
+        <input type="text" name="cancelReason" placeholder="Reason for canceling request" required />
+      </label>
+      <div class="scanner-modal__actions">
+        <button type="button" class="ghost" data-action="cancel">Keep request</button>
+        <button type="button" class="danger" data-action="submit">Cancel request</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const canceledByInput = overlay.querySelector('input[name="canceledBy"]');
+  const cancelReasonInput = overlay.querySelector('input[name="cancelReason"]');
+  const submitButton = overlay.querySelector('[data-action="submit"]');
+
+  overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+  submitButton?.addEventListener('click', async () => {
+    const canceledBy = canceledByInput?.value.trim() || '';
+    const cancelReason = cancelReasonInput?.value.trim() || '';
+
+    if (!canceledBy) {
+      showToast('Canceled by is required.', true);
+      return;
+    }
+
+    if (!cancelReason) {
+      showToast('Cancel reason is required.', true);
+      return;
+    }
+
+    try {
+      await fetchJson('/api/requests/cancel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId,
+          canceledBy,
+          cancelReason,
+        }),
+      });
+      close();
+      await loadBootstrap();
+      renderRecentStationRequests(stationCode);
+      showToast('Request canceled.');
+    } catch (error) {
+      showToast(error.message, true);
+    }
   });
 }
 
