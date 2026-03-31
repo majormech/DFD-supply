@@ -370,6 +370,65 @@ qr-preview-modal {
   gap: 10px;
 }
 
+.station-request-guide {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.station-request-guide h2,
+.station-request-guide h3 {
+  margin: 0;
+}
+
+.station-request-guide ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.request-color-legend {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.request-color-legend li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.legend-chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.legend-chip--pending {
+  background: #ffe7e7;
+  border-color: #bf2222;
+}
+
+.legend-chip--partial {
+  background: #fff8cc;
+  border-color: #d3a700;
+}
+
+.legend-chip--complete {
+  background: #e8fff1;
+  border-color: #14994f;
+}
+
+.legend-chip--canceled {
+  background: #e5e7eb;
+  border-color: #6c7280;
+}
+
 .request-history-card {
   border: 1px solid var(--border);
   border-radius: 12px;
