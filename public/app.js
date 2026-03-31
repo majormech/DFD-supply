@@ -861,7 +861,6 @@ if (!addForm) return;
   const unitCostInput = addForm.querySelector('#add-item-unit-cost');
   const reviewSection = addForm.querySelector('#add-item-review');
   const reviewContent = addForm.querySelector('#add-item-review-content');
-  const previewButton = addForm.querySelector('#add-item-preview');
   const submitButton = addForm.querySelector('#add-item-submit');
   const reviewConfirmInput = addForm.querySelector('#add-item-review-confirm');
   const nameInput = addForm.querySelector('#add-item-name');
@@ -884,7 +883,7 @@ if (!addForm) return;
   const resetReviewState = () => {
     reviewSection.classList.add('hidden');
     reviewConfirmInput.checked = false;
-    submitButton.disabled = true;
+    submitButton.disabled = false;
   };
 
   const renderQrPreview = (value) => {
@@ -925,6 +924,7 @@ if (!addForm) return;
     resetReviewState();
   });
   reviewConfirmInput.addEventListener('change', () => {
+     if (reviewSection.classList.contains('hidden')) return;
     submitButton.disabled = !reviewConfirmInput.checked;
   });
 
@@ -947,14 +947,17 @@ if (!addForm) return;
     showToast('QR code value generated.');
   });
   
-  previewButton?.addEventListener('click', () => {
-    if (!addForm.reportValidity()) return;
-    reviewContent.innerHTML = buildReviewHtml();
-    reviewSection.classList.remove('hidden');
-  });
-
   addForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
+     if (reviewSection.classList.contains('hidden')) {
+      if (!addForm.reportValidity()) return;
+      reviewContent.innerHTML = buildReviewHtml();
+      reviewSection.classList.remove('hidden');
+      submitButton.disabled = !reviewConfirmInput.checked;
+      showToast('Review and confirm the summary before submitting.');
+      return;
+    }
+
     if (!reviewConfirmInput.checked) {
       showToast('Review and confirm the summary before submitting.', true);
       return;
