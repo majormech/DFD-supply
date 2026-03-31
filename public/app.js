@@ -79,6 +79,25 @@ function normalizeRequestedItems(items) {
     .filter(Boolean);
 }
 
+function normalizeOtherRequestedItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      const name = String(item?.name || '').trim();
+      const purpose = String(item?.purpose || item?.usedFor || '').trim();
+      const quantity = Number.parseInt(item?.quantity || 0, 10);
+      const issuedQuantity = Number.parseInt(item?.issuedQuantity || 0, 10);
+      if (!name || !purpose || quantity <= 0) return null;
+      return {
+        name,
+        purpose,
+        quantity,
+        issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+      };
+    })
+    .filter(Boolean);
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -242,6 +261,7 @@ async function loadBootstrap() {
   state.stationRequests = (data.stationRequests || []).map((request) => ({
     ...request,
     requested_items: normalizeRequestedItems(request.requested_items),
+    non_inventory_items: normalizeOtherRequestedItems(request.non_inventory_items),
   }));
   state.recentTransactions = data.recentTransactions;
   return data;
@@ -249,6 +269,7 @@ async function loadBootstrap() {
 
 function requestDetails(request) {
   const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
+  const nonInventoryItems = Array.isArray(request.non_inventory_items) ? request.non_inventory_items : [];
   const requestedSummary = requestedItems.length
        ? `<ul>${requestedItems.map((item) => {
          const fulfilled = item.issuedQuantity >= item.quantity;
@@ -256,10 +277,18 @@ function requestDetails(request) {
          return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}</li>`;
        }).join('')}</ul>`
     : '<p class="helper">No inventory items listed.</p>';
+ const nonInventorySummary = nonInventoryItems.length
+    ? `<ul>${nonInventoryItems.map((item) => {
+      const fulfilled = item.issuedQuantity >= item.quantity;
+      const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
+      return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})${fulfilled ? '' : ` · remaining ${remaining}`}</span></li>`;
+    }).join('')}</ul>`
+    : '<p class="helper">No off-list items listed.</p>';
 
   return `
     ${requestedSummary}
-    ${request.other_items ? `<p><strong>Other items:</strong> ${escapeHtml(request.other_items)}</p>` : ''}
+    <p><strong>Items not on inventory list:</strong></p>
+    ${nonInventorySummary}
     <p class="helper">Requested by ${escapeHtml(request.requester_name)} · ${new Date(request.created_at).toLocaleString()}</p>
     `;
 }
@@ -995,7 +1024,8 @@ function buildRequestedItemsForStation(stationId) {
   const requests = getActiveStationRequests().filter((request) => Number(request.station_id) === Number(stationId));
   return requests.flatMap((request) => {
     const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
-    return requestedItems.map((entry, itemIndex) => {
+    const nonInventoryItems = Array.isArray(request.non_inventory_items) ? request.non_inventory_items : [];
+    const inventoryEntries = requestedItems.map((entry, itemIndex) => {
       const inventoryItem = state.items.find((item) => item.name.trim().toLowerCase() === String(entry.name || '').trim().toLowerCase());
       const issuedQuantity = Number.parseInt(entry.issuedQuantity || 0, 10);
       const quantity = Number.parseInt(entry.quantity || 0, 10);
@@ -1010,8 +1040,31 @@ function buildRequestedItemsForStation(stationId) {
         issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
         remainingQuantity: remaining,
         available: Number.parseInt(inventoryItem?.total_quantity || 0, 10),
+      purpose: '',
+        isNonInventory: false,
       };
     });
+
+    const nonInventoryEntries = nonInventoryItems.map((entry, itemIndex) => {
+      const issuedQuantity = Number.parseInt(entry.issuedQuantity || 0, 10);
+      const quantity = Number.parseInt(entry.quantity || 0, 10);
+      const remaining = Math.max(0, quantity - (Number.isInteger(issuedQuantity) ? issuedQuantity : 0));
+      return {
+        requestId: request.id,
+        requestCreatedAt: request.created_at,
+        itemIndex,
+        itemId: null,
+        itemName: String(entry.name || '').trim(),
+        requestedQuantity: quantity,
+        issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
+        remainingQuantity: remaining,
+        available: 0,
+        purpose: String(entry.purpose || '').trim(),
+        isNonInventory: true,
+      };
+    });
+
+    return [...inventoryEntries, ...nonInventoryEntries];
   });
 }
 
@@ -1038,7 +1091,20 @@ function openIssueItemsModal(stationId) {
       markedUnable: false,
       isPartialRequest: item.issuedQuantity > 0 && item.remainingQuantity > 0,
       code: '',
-      source: 'request',
+           source: 'request',
+        purpose: item.purpose || '',
+        isNonInventory: false,
+      }));
+  const unresolvedEntries = requestedItems
+    .filter((item) => item.remainingQuantity > 0 && !item.itemId)
+    .map((item) => ({
+      requestId: item.requestId,
+      itemName: item.itemName,
+      requestedQuantity: item.requestedQuantity,
+      issuedQuantity: item.issuedQuantity,
+      remainingQuantity: item.remainingQuantity,
+      purpose: item.purpose || '',
+      isNonInventory: Boolean(item.isNonInventory),
     }));
 
   const overlay = document.createElement('div');
@@ -1059,6 +1125,7 @@ function openIssueItemsModal(stationId) {
         <button type="button" data-action="scan-item" class="secondary">Scan item QR or barcode</button>
         <button type="button" data-action="add-another-item">Add another item</button>
       </div>
+          <div data-role="unresolvedItems" class="restock-followup hidden"></div>
       <label class="checkbox-label">
         <input type="checkbox" name="confirmedPulled" />
          I acknowledge these items are being pulled from inventory and the quantities are correct.
@@ -1084,9 +1151,10 @@ function openIssueItemsModal(stationId) {
   const submitButton = overlay.querySelector('[data-action="submit"]');
   const confirmPulled = overlay.querySelector('input[name="confirmedPulled"]');
   const identityInput = overlay.querySelector('input[name="issuedBy"]');
-const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
+  const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   const cancelConfirm = overlay.querySelector('[data-role="cancelConfirm"]');
   const issueSummary = overlay.querySelector('[data-role="issueSummary"]');
+  const unresolvedItemsEl = overlay.querySelector('[data-role="unresolvedItems"]');
   const scanItemButton = overlay.querySelector('[data-action="scan-item"]');
   const addAnotherButton = overlay.querySelector('[data-action="add-another-item"]');
 
@@ -1120,6 +1188,100 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
       : '<p class="helper">No items selected yet. Scan an item QR code or barcode to begin issuing.</p>';
   };
 
+  const renderUnresolvedItems = () => {
+    if (!unresolvedEntries.length) {
+      unresolvedItemsEl.classList.add('hidden');
+      unresolvedItemsEl.innerHTML = '';
+      return;
+    }
+
+    unresolvedItemsEl.classList.remove('hidden');
+    unresolvedItemsEl.innerHTML = `
+      <strong>Requested items not available in inventory list</strong>
+      <ul>
+        ${unresolvedEntries.map((item, index) => `
+          <li>
+            <strong>${escapeHtml(item.itemName)}</strong>: ${item.remainingQuantity} pending
+            ${item.purpose ? `<span class="helper">(for ${escapeHtml(item.purpose)})</span>` : ''}
+            <button type="button" class="secondary" data-action="add-missing-item" data-index="${index}">Add to inventory</button>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  };
+
+  const openAddMissingItemModal = async (entryIndex) => {
+    const entry = unresolvedEntries[entryIndex];
+    if (!entry) return;
+    const generatedQr = buildGeneratedQrCode();
+    const defaultIssuedBy = identityInput.value.trim() || rememberedIdentity || 'Supply Officer';
+    const quantityDefault = Math.max(1, entry.remainingQuantity || entry.requestedQuantity || 1);
+    const noteDefault = `Added from request #${entry.requestId} for ${station.name}.`;
+    const quantityText = window.prompt(`Initial inventory quantity for "${entry.itemName}"`, String(quantityDefault));
+    if (quantityText == null) return;
+    const totalQuantity = Number.parseInt(quantityText, 10);
+    if (!Number.isInteger(totalQuantity) || totalQuantity < 0) {
+      showToast('Quantity must be 0 or greater.', true);
+      return;
+    }
+    const performedBy = window.prompt('Who is creating this item?', defaultIssuedBy);
+    if (performedBy == null) return;
+    if (!performedBy.trim()) {
+      showToast('Name or employee number is required.', true);
+      return;
+    }
+
+    try {
+      const payload = {
+        name: entry.itemName,
+        description: entry.purpose || 'Added from station request item not found in inventory list.',
+        totalQuantity,
+        lowStockLevel: Math.min(totalQuantity, 1),
+        unitCost: 0,
+        qrCode: generatedQr,
+        skipBarcodeCapture: 'true',
+        performedBy: performedBy.trim(),
+        note: noteDefault,
+      };
+      const response = await fetchJson('/api/items', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const createdItem = response?.item;
+      if (!createdItem?.id) {
+        showToast('Item was created but could not be loaded into issue list.', true);
+        return;
+      }
+
+      unresolvedEntries.splice(entryIndex, 1);
+      issueEntries.push({
+        requestId: entry.requestId,
+        itemId: createdItem.id,
+        itemName: createdItem.name || entry.itemName,
+        available: Number.parseInt(createdItem.total_quantity || 0, 10),
+        requestedQuantity: entry.requestedQuantity,
+        issuedQuantity: entry.issuedQuantity,
+        remainingQuantity: entry.remainingQuantity,
+        issueQuantity: Math.max(1, Math.min(entry.remainingQuantity, Number.parseInt(createdItem.total_quantity || 0, 10) || entry.remainingQuantity)),
+        isComplete: entry.remainingQuantity <= 0,
+        markedUnable: false,
+        isPartialRequest: entry.issuedQuantity > 0 && entry.remainingQuantity > 0,
+        code: createdItem.qr_code || '',
+        source: 'request',
+        purpose: entry.purpose || '',
+        isNonInventory: false,
+      });
+      await loadBootstrap();
+      renderIssueItems();
+      renderUnresolvedItems();
+      refreshSubmitState();
+      showToast(`${entry.itemName} was added to inventory and prefilled in the issue list.`);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  };
+  
   const refreshSubmitState = () => {
     const openEntries = issueEntries.filter((item) => !item.isComplete && !item.markedUnable);
     const canSubmit = Boolean(confirmPulled.checked && openEntries.length);
@@ -1188,6 +1350,7 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
   };
 
   renderIssueItems();
+  renderUnresolvedItems();
   refreshSubmitState();
   if (!issueEntries.length) {
     showToast('No active request found. Scan an item to start issuing inventory.');
@@ -1229,6 +1392,14 @@ const issueItemsEl = overlay.querySelector('[data-role="issueItems"]');
     entry.markedUnable = Boolean(unableToggle.checked);
     renderIssueItems();
     refreshSubmitState();
+  });
+
+  unresolvedItemsEl.addEventListener('click', (event) => {
+    const addButton = event.target.closest('[data-action="add-missing-item"]');
+    if (!addButton) return;
+    const entryIndex = Number.parseInt(addButton.dataset.index || '-1', 10);
+    if (entryIndex < 0) return;
+    openAddMissingItemModal(entryIndex);
   });
 
   confirmPulled?.addEventListener('change', () => {
@@ -1843,13 +2014,24 @@ target.innerHTML = requests.map((request) => {
     const canceled = Boolean(request.canceled_at);
     const modified = Boolean(request.modified_at);
     const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+    const nonInventoryItems = Array.isArray(request.non_inventory_items) ? request.non_inventory_items : [];
     const hasPartiallyIssuedItems = !completed && !canceled
       && items.some((item) => {
         const quantity = Number.parseInt(item.quantity || 0, 10);
         const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
         return quantity > 0 && issuedQuantity > 0 && issuedQuantity < quantity;
       });
-const hasIssuedItems = items.some((item) => {
+   const hasPartiallyIssuedNonInventoryItems = !completed && !canceled
+      && nonInventoryItems.some((item) => {
+        const quantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+        return quantity > 0 && issuedQuantity > 0 && issuedQuantity < quantity;
+      });
+   const hasIssuedItems = items.some((item) => {
+      const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+      return issuedQuantity > 0;
+    });
+   const hasIssuedNonInventoryItems = nonInventoryItems.some((item) => {
       const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
       return issuedQuantity > 0;
     });
@@ -1858,8 +2040,13 @@ const hasIssuedItems = items.some((item) => {
       const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
       return issuedQuantity >= quantity;
     });
+    const allNonInventoryItemsIssued = nonInventoryItems.length > 0 && nonInventoryItems.every((item) => {
+      const quantity = Number.parseInt(item.quantity || 0, 10);
+      const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+      return issuedQuantity >= quantity;
+    });
     const hasPartialProgress = !completed && !canceled
-      && (hasPartiallyIssuedItems || (hasIssuedItems && !allItemsIssued));
+      && (hasPartiallyIssuedItems || hasPartiallyIssuedNonInventoryItems || (hasIssuedItems && !allItemsIssued) || (hasIssuedNonInventoryItems && !allNonInventoryItemsIssued));
   
     const issuedItems = items
       .map((item) => {
@@ -1924,6 +2111,9 @@ const hasIssuedItems = items.some((item) => {
             <ul>
               ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
             </ul>
+             ${nonInventoryItems.length
+              ? `<p class="helper"><strong>Items not on inventory list</strong></p><ul>${nonInventoryItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})</span></li>`).join('')}</ul>`
+              : ''}
           `}
         <p class="helper">Requested: ${new Date(request.created_at).toLocaleString()} · by ${escapeHtml(request.requester_name)}</p>
         ${completed
@@ -2190,6 +2380,7 @@ function openModifyRequestModal(requestId, stationCode) {
 
 function openRequestItemModal(stationCode) {
   const addedItems = [];
+  const addedNonInventoryItems = [];
   let activeItem = null;
   let scannedCode = '';
   const overlay = document.createElement('div');
@@ -2220,7 +2411,24 @@ function openRequestItemModal(stationCode) {
       </label>
       <div class="inline-actions">
         <button type="button" data-action="add">Add item</button>
+        <button type="button" data-action="add-non-inventory" class="secondary">Item not on inventory list</button>
         <button type="button" data-action="submit" class="secondary">Submit request</button>
+      </div>
+       <div data-role="nonInventoryForm" class="hidden restock-followup stack compact">
+        <strong>Item not on inventory list</strong>
+        <label>Item name
+          <input type="text" name="nonInventoryName" placeholder="Item name" />
+        </label>
+        <label>What is the item for?
+          <input type="text" name="nonInventoryPurpose" placeholder="Purpose or use case" />
+        </label>
+        <label>Quantity requested
+          <input type="number" min="1" value="1" name="nonInventoryQty" />
+        </label>
+        <div class="inline-actions">
+          <button type="button" data-action="save-non-inventory">Save item not on list</button>
+          <button type="button" data-action="cancel-non-inventory" class="ghost">Cancel</button>
+        </div>
       </div>
       <button type="button" data-action="cancel" class="danger">Cancel</button>
       <div data-role="cancelConfirm" class="hidden restock-followup stack compact">
@@ -2245,11 +2453,21 @@ function openRequestItemModal(stationCode) {
   const itemInfo = overlay.querySelector('[data-role="itemInfo"]');
   const qtyInput = overlay.querySelector('input[name="requestQty"]');
   const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
+  const nonInventoryForm = overlay.querySelector('[data-role="nonInventoryForm"]');
+  const nonInventoryNameInput = overlay.querySelector('input[name="nonInventoryName"]');
+  const nonInventoryPurposeInput = overlay.querySelector('input[name="nonInventoryPurpose"]');
+  const nonInventoryQtyInput = overlay.querySelector('input[name="nonInventoryQty"]');
   const cancelConfirm = overlay.querySelector('[data-role="cancelConfirm"]');
 
   const renderAddedItems = () => {
-    requestItemsEl.innerHTML = addedItems.length
-      ? `<strong>Items in request</strong><ul>${addedItems.map((entry) => `<li>${escapeHtml(entry.name)}: ${entry.quantity}</li>`).join('')}</ul>`
+    const inventoryList = addedItems.length
+      ? `<ul>${addedItems.map((entry) => `<li>${escapeHtml(entry.name)}: ${entry.quantity}</li>`).join('')}</ul>`
+      : '<p class="helper">No inventory items added yet.</p>';
+    const nonInventoryList = addedNonInventoryItems.length
+      ? `<ul>${addedNonInventoryItems.map((entry) => `<li>${escapeHtml(entry.name)}: ${entry.quantity} <span class="helper">(for ${escapeHtml(entry.purpose)})</span></li>`).join('')}</ul>`
+      : '<p class="helper">No out-of-list items added yet.</p>';
+    requestItemsEl.innerHTML = (addedItems.length || addedNonInventoryItems.length)
+      ? `<strong>Items in request</strong><p class="helper"><strong>Inventory items</strong></p>${inventoryList}<p class="helper"><strong>Items not on inventory list</strong></p>${nonInventoryList}`
       : '<p class="helper">No items added yet.</p>';
   };
 
@@ -2355,13 +2573,47 @@ function openRequestItemModal(stationCode) {
     showToast('Item added to request.');
   });
 
+   overlay.querySelector('[data-action="add-non-inventory"]').addEventListener('click', () => {
+    nonInventoryForm.classList.remove('hidden');
+    nonInventoryNameInput.focus();
+  });
+
+  overlay.querySelector('[data-action="cancel-non-inventory"]').addEventListener('click', () => {
+    nonInventoryForm.classList.add('hidden');
+  });
+
+  overlay.querySelector('[data-action="save-non-inventory"]').addEventListener('click', () => {
+    const name = nonInventoryNameInput.value.trim();
+    const purpose = nonInventoryPurposeInput.value.trim();
+    const quantity = Number.parseInt(nonInventoryQtyInput.value || '0', 10);
+    if (!name) {
+      showToast('Enter the item name for the item not on the list.', true);
+      return;
+    }
+    if (!purpose) {
+      showToast('Enter what the item is for.', true);
+      return;
+    }
+    if (!quantity || quantity <= 0) {
+      showToast('Enter a valid quantity requested.', true);
+      return;
+    }
+    addedNonInventoryItems.push({ name, purpose, quantity });
+    nonInventoryNameInput.value = '';
+    nonInventoryPurposeInput.value = '';
+    nonInventoryQtyInput.value = '1';
+    nonInventoryForm.classList.add('hidden');
+    renderAddedItems();
+    showToast('Item not on inventory list added to request.');
+  });
+
   overlay.querySelector('[data-action="submit"]').addEventListener('click', async () => {
     const requesterName = requesterInput.value.trim();
     if (!requesterName) {
       showToast('Enter who is sending the request.', true);
       return;
     }
-    if (!addedItems.length) {
+    if (!addedItems.length && !addedNonInventoryItems.length) {
       showToast('Add at least one item before submitting.', true);
       return;
     }
@@ -2373,7 +2625,7 @@ function openRequestItemModal(stationCode) {
           stationCode,
           requesterName,
           items: addedItems,
-          otherItems: '',
+          otherItems: addedNonInventoryItems,
         }),
       });
       close();
