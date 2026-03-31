@@ -62,6 +62,39 @@ function normalizeRequestedItems(items) {
     .filter(Boolean);
 }
 
+function normalizeOtherRequestedItems(items) {
+  if (Array.isArray(items)) {
+    return items
+      .map((entry) => {
+        const name = String(entry?.name || '').trim();
+        const purpose = String(entry?.purpose || entry?.usedFor || '').trim();
+        const quantity = Number.parseInt(entry?.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(entry?.issuedQuantity || 0, 10);
+        if (!name || !purpose || quantity <= 0) return null;
+        return {
+          name,
+          purpose,
+          quantity,
+          issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof items === 'string') {
+    const trimmed = items.trim();
+    if (!trimmed) return [];
+    return [{
+      name: trimmed,
+      purpose: 'Legacy note',
+      quantity: 1,
+      issuedQuantity: 0,
+    }];
+  }
+
+  return [];
+}
+
 export async function bootstrapData(db) {
   const [stationsRes, itemsRes, txRes, stationRequestsRes, settings] = await Promise.all([
     db.prepare('SELECT id, name, code FROM stations ORDER BY id').all(),
@@ -141,10 +174,20 @@ export async function bootstrapData(db) {
     getSettings(db),
   ]);
 
-   const stationRequests = stationRequestsRes.results.map((request) => ({
-    ...request,
-    requested_items: normalizeRequestedItems(JSON.parse(request.requested_items_json || '[]')),
-  }));
+    const stationRequests = stationRequestsRes.results.map((request) => {
+    let parsedOtherItems = [];
+    try {
+      parsedOtherItems = JSON.parse(request.other_items || '[]');
+    } catch {
+      parsedOtherItems = request.other_items || '';
+    }
+
+    return {
+      ...request,
+      requested_items: normalizeRequestedItems(JSON.parse(request.requested_items_json || '[]')),
+      non_inventory_items: normalizeOtherRequestedItems(parsedOtherItems),
+    };
+  });
 
   return {
     stations: stationsRes.results,
@@ -666,7 +709,7 @@ export async function createStationRequest(request, env) {
 
   if (!stationCode) return badRequest('stationCode is required');
   if (!requesterName) return badRequest('requesterName is required');
-  if (!requestedItems.length && !otherItems) return badRequest('Provide at least one inventory request or other item notes.');
+  if (!requestedItems.length && !otherItems.length) return badRequest('Provide at least one inventory request or other item notes.');
 
   const station = await env.DB.prepare('SELECT id, name, code FROM stations WHERE code = ?').bind(stationCode).first();
   if (!station) return badRequest('Invalid station', 404);
@@ -674,7 +717,7 @@ export async function createStationRequest(request, env) {
   await env.DB.prepare(`
     INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items)
     VALUES (?, ?, ?, NULLIF(?, ''))
-  `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItems).run();
+  `).bind(station.id, requesterName, JSON.stringify(requestedItems), JSON.stringify(otherItems)).run();
 
   const settings = await getSettings(env.DB);
   const lines = requestedItems.map((item) => `- ${item.name}: ${item.quantity}`).join('\n');
@@ -685,7 +728,7 @@ export async function createStationRequest(request, env) {
     'Requested inventory:',
     lines || '- None listed',
     '',
-    `Other items: ${otherItems || 'None'}`,
+     `Other items: ${otherItems.length ? otherItems.map((item) => `${item.name} (${item.quantity}) for ${item.purpose}`).join('; ') : 'None'}`,
     `Submitted at: ${new Date().toISOString()}`,
   ].join('\n');
 
@@ -828,13 +871,20 @@ export async function issueStationRequestItems(request, env) {
   for (const [requestIdRaw, entries] of Object.entries(groupedByRequest)) {
     const requestId = Number.parseInt(requestIdRaw, 10);
     const existing = await env.DB.prepare(`
-      SELECT id, canceled_at, completed_at, requested_items_json
+      SELECT id, canceled_at, completed_at, requested_items_json, other_items
       FROM station_requests
       WHERE id = ?
     `).bind(requestId).first();
     if (!existing || existing.canceled_at || existing.completed_at) continue;
 
     const normalizedItems = normalizeRequestedItems(JSON.parse(existing.requested_items_json || '[]'));
+    let parsedOtherItems = [];
+    try {
+      parsedOtherItems = JSON.parse(existing.other_items || '[]');
+    } catch {
+      parsedOtherItems = existing.other_items || '';
+    }
+    const normalizedOtherItems = normalizeOtherRequestedItems(parsedOtherItems);
     const updatesByName = entries.reduce((acc, entry) => {
       const key = entry.itemName.toLowerCase();
       acc[key] = (acc[key] || 0) + entry.quantity;
@@ -850,9 +900,22 @@ export async function issueStationRequestItems(request, env) {
       };
     });
 
-    const allIssued = nextItems.length > 0 && nextItems.every((item) => item.issuedQuantity >= item.quantity);
+    const nextOtherItems = normalizedOtherItems.map((item) => {
+      const key = item.name.toLowerCase();
+      if (!updatesByName[key]) return item;
+      return {
+        ...item,
+        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + updatesByName[key]),
+      };
+    });
+
+    const hasAnyRequestedItems = (nextItems.length + nextOtherItems.length) > 0;
+    const allIssued = hasAnyRequestedItems
+      && [...nextItems, ...nextOtherItems].every((item) => item.issuedQuantity >= item.quantity);
+    await env.
     await env.DB.prepare(`
       UPDATE station_requests
+      other_items = ?,
       SET requested_items_json = ?,
           modified_by = ?,
           modification_reason = 'Items issued from request queue',
@@ -861,6 +924,7 @@ export async function issueStationRequestItems(request, env) {
           completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END
       WHERE id = ?
     `).bind(
+      JSON.stringify(nextOtherItems),
       JSON.stringify(nextItems),
       issuedBy,
       allIssued ? 1 : 0,
