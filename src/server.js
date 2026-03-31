@@ -912,11 +912,10 @@ export async function issueStationRequestItems(request, env) {
     const hasAnyRequestedItems = (nextItems.length + nextOtherItems.length) > 0;
     const allIssued = hasAnyRequestedItems
       && [...nextItems, ...nextOtherItems].every((item) => item.issuedQuantity >= item.quantity);
-    await env.
     await env.DB.prepare(`
       UPDATE station_requests
-      other_items = ?,
       SET requested_items_json = ?,
+          other_items = ?,
           modified_by = ?,
           modification_reason = 'Items issued from request queue',
           modified_at = CURRENT_TIMESTAMP,
@@ -924,8 +923,8 @@ export async function issueStationRequestItems(request, env) {
           completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END
       WHERE id = ?
     `).bind(
-      JSON.stringify(nextOtherItems),
       JSON.stringify(nextItems),
+      JSON.stringify(nextOtherItems),
       issuedBy,
       allIssued ? 1 : 0,
       issuedBy,
