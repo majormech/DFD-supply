@@ -1,14 +1,6 @@
-Subject: DFD Supply Inventory System Overview + Page-by-Page Quick Guide
-
-Hi Team,
-
-Here is a quick and simple breakdown of the DFD Supply Inventory system, what each page does, and how to use the features.
-
----
-
 ## 1) Quick system breakdown (what it does)
 
-The DFD Supply Inventory system is a shared inventory tool used by Supply and Stations 1–7.
+The DFD Supply Inventory system is a shared inventory tool used by Supply Officer to manage supplies and for Stations to request.
 
 In simple terms, it helps us:
 - Keep one master inventory list for all supply items.
@@ -16,7 +8,6 @@ In simple terms, it helps us:
 - Track station requests from submission to completion.
 - See low-stock items that need to be reordered.
 - Search usage history and export reports.
-- Manage admin email settings for request notifications.
 
 ---
 
@@ -27,7 +18,7 @@ In simple terms, it helps us:
 - Shows a high-level inventory snapshot.
 - Shows station request status by station.
 - Shows shopping list (items below low-stock threshold).
-- Lets users search inventory items quickly.
+- Lets Supply officer search inventory items quickly.
 
 **How to use it:**
 1. Review **Station Request Status** to see which stations have pending requests.
@@ -45,11 +36,12 @@ In simple terms, it helps us:
 
 **How to use it:**
 1. Scan or generate the item QR code.
+   - QR code can be generated either through clicking the generate QR (will auto generate a random QR code) or by typing into the typing field box (for example you have Coffee you want to make a QR code for you can type in the field Coffee and a QR code will be make which will read "coffee")
 2. (Optional) Scan barcode(s), or leave “Skip barcode scan” checked.
 3. Enter item details (name, quantity, low-stock level, cost, etc.).
 4. Enter date/time and completed-by information.
 5. Click **Add item** to open review.
-6. Check the confirmation box and submit.
+7. Check the confirmation box and submit.
 
 ---
 
@@ -80,7 +72,7 @@ In simple terms, it helps us:
 2. Review requested items and requested quantities.
 3. Enter issue quantities for items being sent now.
 4. Submit issue transaction.
-5. Repeat until all request items are fulfilled.
+5. Repeat until all request are fulfilled.
 
 ---
 
@@ -99,19 +91,6 @@ In simple terms, it helps us:
 
 ---
 
-### F) Admin Settings Page (`/admin.html`)
-**What it does:**
-- Stores supply officer email and admin email list.
-- Uses admin key if environment requires secure admin access.
-
-**How to use it:**
-1. Enter Admin key (if required).
-2. Enter/update supply officer email.
-3. Enter/update admin emails (comma-separated).
-4. Click **Save settings**.
-
----
-
 ### G) How-To Guide Page (`/how-to.html`)
 **What it does:**
 - Built-in training/reference page.
@@ -123,7 +102,7 @@ In simple terms, it helps us:
 
 ---
 
-## 3) Station Request Pages (ST01–ST07) — one standard breakdown for all
+## 3) Station Request Page (Station 1– Station 7)
 
 **Pages:**
 - `/request-ST01.html`
@@ -174,12 +153,3 @@ All seven station pages use the same request workflow and features.
   - Pending items show remaining quantities.
   - Partial requests show what has been issued and what is still remaining.
   - Completed requests show fulfilled status.
-
----
-
-## 4) Suggested closing line
-
-If you would like, I can also send a one-page “quick start” version (short checklist) for station members and a separate operations checklist for Supply staff.
-
-Thanks,
-[Your Name]
