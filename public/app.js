@@ -2796,8 +2796,10 @@ async function wireRequestPage() {
 async function wireAdminPage() {
   const form = document.querySelector('#admin-settings-form');
   const keyInput = document.querySelector('#admin-key');
+  const errorBody = document.querySelector('#error-log-body');
+  const refreshErrorsButton = document.querySelector('#refresh-errors');
 
-  const headers = () => ({ ...(keyInput.value ? { 'x-admin-key': keyInput.value } : {}) });
+  const headers = () => ({ ...(keyInput?.value ? { 'x-admin-key': keyInput.value } : {}) });
 
   async function loadSettings() {
     const settings = await fetchJson('/api/admin/settings', { headers: headers() });
@@ -2805,7 +2807,46 @@ async function wireAdminPage() {
     form.querySelector('input[name="adminEmails"]').value = settings.admin_emails || '';
   }
 
-  keyInput?.addEventListener('change', () => loadSettings().catch((error) => showToast(error.message, true)));
+  function renderErrors(errors) {
+    if (!errorBody) return;
+    if (!errors.length) {
+      errorBody.innerHTML = '<tr><td colspan="5" class="helper">No errors have been logged yet.</td></tr>';
+      return;
+    }
+
+    errorBody.innerHTML = errors.map((entry) => `
+      <tr>
+        <td>${escapeHtml(new Date(entry.created_at).toLocaleString())}</td>
+        <td><strong>${escapeHtml(entry.status)}</strong></td>
+        <td>
+          <div>${escapeHtml(entry.method)} ${escapeHtml(entry.path)}</div>
+          <div class="helper">${escapeHtml(entry.user_agent || 'No user agent')}</div>
+        </td>
+        <td>
+          <details>
+            <summary>${escapeHtml(entry.message)}</summary>
+            <pre class="error-stack">${escapeHtml(entry.stack || 'No stack trace recorded.')}</pre>
+          </details>
+        </td>
+        <td>${escapeHtml(entry.source || 'api')}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadErrors() {
+    const data = await fetchJson('/api/admin/errors', { headers: headers() });
+    renderErrors(data.errors || []);
+  }
+
+  keyInput?.addEventListener('change', () => {
+    Promise.all([loadSettings(), loadErrors()]).catch((error) => showToast(error.message, true));
+  });
+
+  refreshErrorsButton?.addEventListener('click', () => {
+    loadErrors()
+      .then(() => showToast('Error log refreshed.'))
+      .catch((error) => showToast(error.message, true));
+  });
 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -2822,12 +2863,12 @@ async function wireAdminPage() {
     }
   });
 
-  await loadSettings();
+  await Promise.all([loadSettings(), loadErrors()]);
 }
 
 (async function init() {
   try {
-    await loadBootstrap();
+    if (page !== 'admin') await loadBootstrap();
     if (page === 'main') renderMain();
     if (page === 'inventory') {
       renderInventoryPage();
