@@ -8,6 +8,51 @@ const json = (data, init = {}) => new Response(JSON.stringify(data), {
 
 const badRequest = (message, status = 400) => json({ error: message }, { status });
 
+function truncate(value, maxLength) {
+  const text = String(value ?? '');
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function normalizeErrorDetails(details = {}) {
+  const error = details.error;
+  return {
+    status: Number.isInteger(details.status) ? details.status : 500,
+    message: truncate(details.message || error?.message || 'Unknown error', 1000),
+    stack: error?.stack ? truncate(error.stack, 8000) : truncate(details.stack || '', 8000),
+    source: truncate(details.source || 'api', 80),
+  };
+}
+
+export async function recordApiError(env, request, details = {}) {
+  if (!env?.DB || !request?.url) return;
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/api/') || url.pathname === '/api/admin/errors') return;
+
+  const normalized = normalizeErrorDetails(details);
+  try {
+    await env.DB.prepare(`
+      INSERT INTO error_logs (source, method, path, status, message, stack, user_agent, created_at)
+      VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), CURRENT_TIMESTAMP)
+    `).bind(
+      normalized.source,
+      request.method,
+      `${url.pathname}${url.search}`,
+      normalized.status,
+      normalized.message,
+      normalized.stack,
+      request.headers.get('user-agent') || '',
+    ).run();
+  } catch (logError) {
+    console.error(JSON.stringify({
+      event: 'error_log_write_failed',
+      message: logError?.message || String(logError),
+      originalError: normalized.message,
+      path: url.pathname,
+      status: normalized.status,
+    }));
+  }
+}
+
 async function parseBody(request) {
   try {
     return await request.json();
@@ -653,6 +698,23 @@ function isAuthorizedAdmin(request, env) {
 export async function getAdminSettings(request, env) {
   if (!isAuthorizedAdmin(request, env)) return badRequest('Unauthorized', 401);
   return json(await getSettings(env.DB));
+}
+
+export async function getErrorLogs(request, env) {
+  if (!isAuthorizedAdmin(request, env)) return badRequest('Unauthorized', 401);
+  const url = new URL(request.url);
+  const limitParam = url.searchParams.get('limit');
+  const limit = limitParam ? Math.min(Math.max(Number.parseInt(limitParam, 10) || 250, 1), 500) : null;
+  const baseQuery = `
+    SELECT id, source, method, path, status, message, stack, user_agent, created_at
+    FROM error_logs
+    ORDER BY datetime(created_at) DESC, id DESC
+  `;
+  const rows = limit
+    ? await env.DB.prepare(`${baseQuery} LIMIT ?`).bind(limit).all()
+    : await env.DB.prepare(baseQuery).all();
+
+  return json({ errors: rows.results || [] });
 }
 
 export async function updateAdminSettings(request, env) {
