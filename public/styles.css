@@ -35,6 +35,8 @@ button { border: 0; background: var(--primary); color: #fff; padding: 11px 14px;
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+admin-error-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.error-stack { white-space: pre-wrap; max-width: 520px; max-height: 240px; overflow: auto; background: #fbfcff; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .qr-thumb {
   width: 48px;
   height: 48px;
