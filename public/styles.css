@@ -32,10 +32,11 @@ label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 input, select, button { border-radius: 12px; }
 input, select { width: 100%; padding: 11px 12px; border: 1px solid var(--border); background: #fff; }
 button { border: 0; background: var(--primary); color: #fff; padding: 11px 14px; font-weight: 700; cursor: pointer; }
+button { max-width: 100%; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
-admin-error-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.admin-error-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .error-stack { white-space: pre-wrap; max-width: 520px; max-height: 240px; overflow: auto; background: #fbfcff; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .qr-thumb {
   width: 48px;
@@ -158,6 +159,10 @@ button.success {
   flex-wrap: wrap;
 }
 
+.restock-layout .inline-actions button {
+  flex: 1 1 180px;
+}
+
 .scanner-modal {
   position: fixed;
   inset: 0;
@@ -244,6 +249,48 @@ qr-preview-modal {
   border-radius: 12px;
   padding: 10px;
   background: #fbfcff;
+}
+
+.restock-layout {
+  grid-template-columns: minmax(320px, 520px) minmax(0, 1fr);
+  align-items: start;
+}
+
+#restock-form {
+  min-width: 0;
+}
+
+#restock-form > button[type='submit'] {
+  width: 100%;
+}
+
+#restock-current-stock {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.restock-layout .wide {
+  grid-column: auto;
+}
+
+.restock-layout #transaction-list {
+  max-height: 760px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.restock-layout .txn {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 920px) {
+  .restock-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .restock-layout .wide {
+    grid-column: 1 / -1;
+  }
 }
 
 .checkbox-label {
@@ -619,6 +666,33 @@ button.request-success {
 }
 
 @media (max-width: 720px) {
+  body[data-page='restock'] .shell {
+    padding: 18px 10px 36px;
+  }
+
+  body[data-page='restock'] .panel {
+    padding: 12px;
+  }
+
+  body[data-page='restock'] .top-nav {
+    width: 100%;
+  }
+
+  body[data-page='restock'] .top-nav a,
+  .restock-layout .inline-actions button,
+  #barcode-followup button {
+    width: 100%;
+  }
+
+  body[data-page='restock'] .stats-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  body[data-page='restock'] #restock-current-stock {
+    text-align: left;
+  }
+
   .scanner-modal {
     align-items: flex-start;
     padding: 10px;
