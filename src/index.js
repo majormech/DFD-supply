@@ -19,6 +19,34 @@ import {
   updateAdminSettings,
 } from './server.js';
 
+function withSecurityHeaders(response, { isApi = false } = {}) {
+  const headers = new Headers(response.headers);
+
+  // Do not advertise sourcemaps in production responses.
+  headers.delete('SourceMap');
+  headers.delete('X-SourceMap');
+
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+
+  if (isApi) {
+    headers.set('Cache-Control', 'no-store');
+  } else {
+    headers.set(
+      'Content-Security-Policy',
+      "default-src 'self'; img-src 'self' data: https://api.qrserver.com; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    );
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -88,11 +116,14 @@ export default {
         return badRequest('Route not found', 404);
       }
 
-      return env.ASSETS.fetch(request);
+     return withSecurityHeaders(await env.ASSETS.fetch(request));
     };
 
     try {
-      const response = await route();
+      let response = await route();
+      if (url.pathname.startsWith('/api/')) {
+        response = withSecurityHeaders(response, { isApi: true });
+      }
       if (url.pathname.startsWith('/api/') && !response.ok) {
         const data = await response.clone().json().catch(() => ({}));
         ctx?.waitUntil(recordApiError(env, request, {
