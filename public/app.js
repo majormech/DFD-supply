@@ -298,9 +298,22 @@ async function scanCodeWithCamera(title = 'Scan barcode or QR code') {
     throw new Error('Camera scanning is not supported on this device. Type the code manually instead.');
   }
 
-  const detector = new window.BarcodeDetector({
-    formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar'],
-  });
+   const preferredFormats = ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar'];
+  let detector;
+  try {
+    let formats = preferredFormats;
+    if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+      const supported = await window.BarcodeDetector.getSupportedFormats();
+      const supportedSet = new Set(Array.isArray(supported) ? supported : []);
+      const filtered = preferredFormats.filter((format) => supportedSet.has(format));
+      if (filtered.length) formats = filtered;
+    }
+    detector = formats.length
+      ? new window.BarcodeDetector({ formats })
+      : new window.BarcodeDetector();
+  } catch {
+    detector = new window.BarcodeDetector();
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'scanner-modal';
