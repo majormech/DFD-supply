@@ -293,6 +293,113 @@ function requestDetails(request) {
     `;
 }
 
+function getPendingIssuePrintRows() {
+  const stationNames = new Map(state.stations.map((station) => [String(station.id), station.name]));
+  return getActiveStationRequests().flatMap((request) => {
+    const items = Array.isArray(request.requested_items) ? request.requested_items : [];
+    return items
+      .map((item) => {
+        const requestedQuantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedQuantity = Number.parseInt(item.issuedQuantity || 0, 10);
+        const remainingQuantity = Math.max(0, requestedQuantity - (Number.isInteger(issuedQuantity) ? issuedQuantity : 0));
+        if (requestedQuantity <= 0 || remainingQuantity <= 0) return null;
+        return {
+          stationName: stationNames.get(String(request.station_id)) || `Station ${request.station_id}`,
+          requestId: request.id,
+          itemName: String(item.name || '').trim(),
+          requestedQuantity,
+          issuedQuantity: Math.max(0, issuedQuantity || 0),
+          remainingQuantity,
+          requesterName: request.requester_name || 'Unknown',
+          createdAt: request.created_at,
+        };
+      })
+      .filter(Boolean);
+  });
+}
+
+function renderIssuePrintSummary() {
+  const summary = document.querySelector('#issue-print-summary');
+  if (!summary) return;
+  const rows = getPendingIssuePrintRows();
+  if (!rows.length) {
+    summary.textContent = 'No pending inventory item requests to print.';
+    return;
+  }
+
+  const requestIds = new Set(rows.map((row) => row.requestId));
+  const totalRemaining = rows.reduce((sum, row) => sum + row.remainingQuantity, 0);
+  summary.textContent = `${rows.length} line item${rows.length === 1 ? '' : 's'} pending across ${requestIds.size} request${requestIds.size === 1 ? '' : 's'} (${totalRemaining} total items remaining).`;
+}
+
+function printAllRequestedIssueItems() {
+  const rows = getPendingIssuePrintRows();
+  if (!rows.length) {
+    showToast('No pending requested items are available to print.', true);
+    return;
+  }
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    showToast('Popup blocked. Allow popups to print requested items.', true);
+    return;
+  }
+
+  const printedAt = new Date();
+  const tableRows = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.stationName)}</td>
+      <td>${escapeHtml(row.requestId)}</td>
+      <td>${escapeHtml(row.itemName)}</td>
+      <td>${escapeHtml(row.requestedQuantity)}</td>
+      <td>${escapeHtml(row.issuedQuantity)}</td>
+      <td>${escapeHtml(row.remainingQuantity)}</td>
+      <td>${escapeHtml(row.requesterName)}</td>
+      <td>${escapeHtml(new Date(row.createdAt).toLocaleString())}</td>
+    </tr>
+  `).join('');
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>Issue Pull List</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 16px; color: #1f2933; }
+        h1 { margin: 0 0 8px; font-size: 24px; }
+        p { margin: 0 0 12px; color: #4a5568; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        th, td { border: 1px solid #d7e0ea; padding: 6px; text-align: left; vertical-align: top; }
+        th { background: #eff5fb; }
+      </style>
+    </head>
+    <body>
+      <h1>Issue Pull List</h1>
+      <p>Printed ${escapeHtml(printedAt.toLocaleString())} · ${escapeHtml(rows.length)} pending line item${rows.length === 1 ? '' : 's'}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Station</th>
+            <th>Request #</th>
+            <th>Item</th>
+            <th>Requested</th>
+            <th>Already Issued</th>
+            <th>Remaining</th>
+            <th>Requested By</th>
+            <th>Requested At</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
 async function scanCodeWithCamera(title = 'Scan barcode or QR code') {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera scanning is not supported on this device. Type the code manually instead.');
@@ -883,7 +990,7 @@ function renderIssuePage() {
       </article>
     `;
   }).join('');
-  
+  renderIssuePrintSummary();
   renderRecentTransactions();
 }
 
@@ -1585,7 +1692,12 @@ function openIssueItemsModal(stationId) {
 async function wireIssueForm() {
   const stationList = document.querySelector('#issue-station-list');
   if (!stationList) return;
+const printAllButton = document.querySelector('#issue-print-all');
 
+  printAllButton?.addEventListener('click', () => {
+    printAllRequestedIssueItems();
+  });
+  
   stationList.addEventListener('click', (event) => {
     const toggleButton = event.target.closest('[data-action="toggle-station-issue"]');
     if (toggleButton) {
