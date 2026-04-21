@@ -294,25 +294,30 @@ function requestDetails(request) {
 }
 
 async function scanCodeWithCamera(title = 'Scan barcode or QR code') {
-  if (!window.BarcodeDetector || !navigator.mediaDevices?.getUserMedia) {
+  if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera scanning is not supported on this device. Type the code manually instead.');
   }
 
-   const preferredFormats = ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar'];
+  const BarcodeDetectorClass = await getBarcodeDetectorClass();
+  if (!BarcodeDetectorClass) {
+    throw new Error('Barcode scanning is unavailable on this device browser. Try Safari on iPhone/iPad or type the code manually.');
+  }
+
+  const preferredFormats = ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar'];
   let detector;
   try {
     let formats = preferredFormats;
-    if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
-      const supported = await window.BarcodeDetector.getSupportedFormats();
+    if (typeof BarcodeDetectorClass.getSupportedFormats === 'function') {
+      const supported = await BarcodeDetectorClass.getSupportedFormats();
       const supportedSet = new Set(Array.isArray(supported) ? supported : []);
       const filtered = preferredFormats.filter((format) => supportedSet.has(format));
       if (filtered.length) formats = filtered;
     }
     detector = formats.length
-      ? new window.BarcodeDetector({ formats })
-      : new window.BarcodeDetector();
+      ? new BarcodeDetectorClass({ formats })
+      : new BarcodeDetectorClass();
   } catch {
-    detector = new window.BarcodeDetector();
+    detector = new BarcodeDetectorClass();
   }
 
   const overlay = document.createElement('div');
@@ -385,6 +390,17 @@ async function scanCodeWithCamera(title = 'Scan barcode or QR code') {
 
     tick();
   });
+}
+
+let barcodeDetectorClassPromise;
+async function getBarcodeDetectorClass() {
+  if (window.BarcodeDetector) return window.BarcodeDetector;
+  if (!barcodeDetectorClassPromise) {
+    barcodeDetectorClassPromise = import('https://cdn.jsdelivr.net/npm/barcode-detector@3.0.3/+esm')
+      .then((module) => module.BarcodeDetector)
+      .catch(() => null);
+  }
+  return barcodeDetectorClassPromise;
 }
 
 function appendCodeToInput(input, code) {
