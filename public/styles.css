@@ -561,6 +561,10 @@ button.request-success {
   border-color: #d3a700;
 }
 
+.issue-print-area {
+  align-items: flex-start;
+}
+
 .issued-line {
   text-decoration: line-through;
   color: #5b6470;
