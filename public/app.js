@@ -98,6 +98,86 @@ function normalizeOtherRequestedItems(items) {
     .filter(Boolean);
 }
 
+function normalizeSuggestionText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findSimilarInventoryItems(requestedName, maxResults = 3) {
+  const normalizedRequested = normalizeSuggestionText(requestedName);
+  if (!normalizedRequested) return [];
+  const requestedTokens = normalizedRequested.split(' ').filter((token) => token.length > 1);
+  if (!requestedTokens.length) return [];
+
+  return state.items
+    .map((item) => {
+      const normalizedItemName = normalizeSuggestionText(item.name);
+      if (!normalizedItemName) return null;
+      const itemTokens = normalizedItemName.split(' ').filter((token) => token.length > 1);
+      let score = 0;
+      requestedTokens.forEach((token) => {
+        if (normalizedItemName.includes(token)) score += 2;
+        if (itemTokens.includes(token)) score += 1;
+      });
+      if (normalizedItemName.includes(normalizedRequested)) score += 4;
+      if (normalizedRequested.includes(normalizedItemName)) score += 2;
+      return score > 0 ? { item, score } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults)
+    .map((entry) => entry.item);
+}
+
+function promptSimilarItemSelection(requestedName, similarItems) {
+  if (!Array.isArray(similarItems) || !similarItems.length) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'scanner-modal';
+    overlay.innerHTML = `
+      <div class="scanner-modal__card">
+        <h3>Similar inventory item found</h3>
+        <p class="helper">You entered <strong>${escapeHtml(requestedName)}</strong>. Did you mean one of these items?</p>
+        <div class="stack compact" data-role="suggested-items"></div>
+        <p class="helper">If not, continue and keep it in the "not on inventory list" request.</p>
+        <div class="scanner-modal__actions">
+          <button type="button" data-action="continue-non-inventory" class="secondary">Continue as not on list</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    const list = overlay.querySelector('[data-role="suggested-items"]');
+    list.innerHTML = similarItems.map((item) => `
+      <button type="button" data-action="use-suggested-item" data-item-id="${item.id}">
+        ${escapeHtml(item.name)}
+      </button>
+    `).join('');
+
+    list.querySelectorAll('[data-action="use-suggested-item"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const itemId = button.dataset.itemId;
+        const selected = similarItems.find((item) => String(item.id) === String(itemId)) || null;
+        close(selected);
+      });
+    });
+
+    overlay.querySelector('[data-action="continue-non-inventory"]')?.addEventListener('click', () => close(null));
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close(null);
+    });
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -2872,7 +2952,7 @@ function openRequestItemModal(stationCode) {
     nonInventoryForm.classList.add('hidden');
   });
 
-  overlay.querySelector('[data-action="save-non-inventory"]').addEventListener('click', () => {
+  overlay.querySelector('[data-action="save-non-inventory"]').addEventListener('click', async () => {
     const name = nonInventoryNameInput.value.trim();
     const purpose = nonInventoryPurposeInput.value.trim();
     const quantity = Number.parseInt(nonInventoryQtyInput.value || '0', 10);
@@ -2888,6 +2968,24 @@ function openRequestItemModal(stationCode) {
       showToast('Enter a valid quantity requested.', true);
       return;
     }
+
+    const similarItems = findSimilarInventoryItems(name);
+    if (similarItems.length) {
+      const selectedItem = await promptSimilarItemSelection(name, similarItems);
+      if (selectedItem) {
+        const existing = addedItems.find((item) => item.name === selectedItem.name);
+        if (existing) existing.quantity += quantity;
+        else addedItems.push({ name: selectedItem.name, quantity });
+        nonInventoryNameInput.value = '';
+        nonInventoryPurposeInput.value = '';
+        nonInventoryQtyInput.value = '1';
+        nonInventoryForm.classList.add('hidden');
+        renderAddedItems();
+        showToast('Similar inventory item added to request.');
+        return;
+      }
+    }
+    
     addedNonInventoryItems.push({ name, purpose, quantity });
     nonInventoryNameInput.value = '';
     nonInventoryPurposeInput.value = '';
