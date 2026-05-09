@@ -1156,13 +1156,37 @@ if (!addForm) return;
   renderQrPreview(qrInput?.value || '');
 }
 
+function normalizeItemLookupName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\bdet\b/g, 'detergent')
+    .replace(/\bliq\b/g, 'liquid')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findInventoryItemByRequestName(name) {
+  const requestedName = String(name || '').trim();
+  if (!requestedName) return null;
+
+  const exact = state.items.find((item) => item.name.trim().toLowerCase() === requestedName.toLowerCase());
+  if (exact) return exact;
+
+  const normalizedRequested = normalizeItemLookupName(requestedName);
+  if (!normalizedRequested) return null;
+
+  return state.items.find((item) => normalizeItemLookupName(item.name) === normalizedRequested) || null;
+}
+
 function buildRequestedItemsForStation(stationId) {
   const requests = getActiveStationRequests().filter((request) => Number(request.station_id) === Number(stationId));
   return requests.flatMap((request) => {
     const requestedItems = Array.isArray(request.requested_items) ? request.requested_items : [];
     const nonInventoryItems = Array.isArray(request.non_inventory_items) ? request.non_inventory_items : [];
     const inventoryEntries = requestedItems.map((entry, itemIndex) => {
-      const inventoryItem = state.items.find((item) => item.name.trim().toLowerCase() === String(entry.name || '').trim().toLowerCase());
+      const inventoryItem = findInventoryItemByRequestName(entry.name);
       const issuedQuantity = Number.parseInt(entry.issuedQuantity || 0, 10);
       const quantity = Number.parseInt(entry.quantity || 0, 10);
       const remaining = Math.max(0, quantity - (Number.isInteger(issuedQuantity) ? issuedQuantity : 0));
