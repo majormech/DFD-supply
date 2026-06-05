@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">DFD Supply</p>
           <h1>How-To Guide</h1>
-          <p class="subtitle">Step-by-step instructions for common inventory workflows.</p>
+          <p class="subtitle">A plain-language operating guide for adding stock, restocking items, filling station requests, and reporting usage.</p>
         </div>
         <nav class="top-nav">
           <a href="/index.html">Main Page</a>
@@ -23,74 +23,170 @@
         </nav>
       </header>
 
-      <main class="layout">
+      <main class="layout howto-layout">
+        <section class="panel stack wide howto-hero-card">
+          <div>
+            <h2>Start here: daily supply workflow</h2>
+            <p class="subtitle">Use this order when you are working through a normal supply shift.</p>
+          </div>
+          <div class="howto-steps-grid" aria-label="Daily workflow overview">
+            <article>
+              <strong>1. Check status</strong>
+              <span>Open the Main Page to review low-stock alerts and station request status.</span>
+            </article>
+            <article>
+              <strong>2. Pull requests</strong>
+              <span>Open the Issue Page, print the pull list if needed, and issue requested items.</span>
+            </article>
+            <article>
+              <strong>3. Refill inventory</strong>
+              <span>Use Restock for existing items or Inventory Actions for brand-new item records.</span>
+            </article>
+            <article>
+              <strong>4. Review usage</strong>
+              <span>Use Search Page filters, charts, and exports for reporting.</span>
+            </article>
+          </div>
+        </section>
+
         <section class="panel stack wide">
-          <h2>Quick Navigation</h2>
-          <ul class="howto-toc">
-            <li><a href="#add-item">Add a new item</a></li>
-            <li><a href="#edit-item">Edit an existing item</a></li>
-            <li><a href="#issue-items">Issue items to a station</a></li>
-            <li><a href="#restock-items">Restock existing inventory</a></li>
-            <li><a href="#search-usage">Search usage and export reports</a></li>
-          </ul>
+          <h2>Quick navigation</h2>
+          <nav class="howto-toc" aria-label="How-to sections">
+            <a href="#main-page">Main inventory dashboard</a>
+            <a href="#add-item">Add a brand-new item</a>
+            <a href="#restock-items">Restock an existing item</a>
+            <a href="#station-requests">Submit or manage station requests</a>
+            <a href="#issue-items">Issue items to a station</a>
+            <a href="#search-usage">Search usage and export reports</a>
+            <a href="#data-quality">Data quality checklist</a>
+            <a href="#troubleshooting">Troubleshooting</a>
+          </nav>
+        </section>
+
+        <section id="main-page" class="panel stack wide howto-section">
+          <div class="howto-section__header">
+            <p class="eyebrow">Dashboard</p>
+            <h2>Main inventory dashboard</h2>
+          </div>
+          <ol>
+            <li>Open <strong>Main Page</strong> to see the current inventory snapshot.</li>
+            <li>Review <strong>Station Request Status</strong>. Red stations have pending requests; green stations have no pending requests.</li>
+            <li>Review the <strong>Shopping List</strong> for items below their low-stock / reorder level.</li>
+            <li>Use <strong>Search items</strong> to filter the table by item name or SKU.</li>
+            <li>Use the item action buttons to review or edit item details when corrections are needed.</li>
+          </ol>
+          <p class="helper">Best practice: check this page first so you know what needs attention before changing stock counts.</p>
         </section>
 
         <section id="add-item" class="panel stack wide howto-section">
-          <h2>1) Add a new item to inventory</h2>
+          <div class="howto-section__header">
+            <p class="eyebrow">New inventory</p>
+            <h2>Add a brand-new item</h2>
+          </div>
           <ol>
-            <li>Open <strong>Inventory Actions</strong> from the top navigation.</li>
-            <li>Scan or generate a unique QR code for the new item type.</li>
-            <li>Optionally scan barcode(s), or keep <strong>Skip barcode scan</strong> enabled.</li>
-            <li>Enter item details: name, quantity, low-stock level, and optional cost/description/SKU.</li>
-            <li>Set date/time and <strong>Completed by</strong> information.</li>
-           <li>Click <strong>Add item</strong> to show the summary, confirm the review checkbox, then click <strong>Add item</strong> again to submit.</li>
+            <li>Open <strong>Inventory Actions</strong>.</li>
+            <li>Scan a unique item QR code, or select <strong>Generate QR</strong> and save or print the generated QR label.</li>
+            <li>Leave <strong>Skip barcode scan</strong> checked if the item does not have a barcode yet. Otherwise, scan one or more barcodes and separate multiple values with commas.</li>
+            <li>Enter the item name, starting quantity, low-stock / reorder level, optional unit cost, notes, description, and SKU.</li>
+            <li>Enter the date/time and the <strong>Completed by</strong> name or employee number.</li>
+            <li>Select <strong>Add item</strong>, review the summary, check the confirmation box, then select <strong>Add item</strong> again to submit.</li>
           </ol>
-          <p class="helper">Tip: Use clear, consistent item names so search and reports remain clean.</p>
-        </section>
-
-        <section id="edit-item" class="panel stack wide howto-section">
-          <h2>2) Edit an existing item</h2>
-          <ol>
-            <li>Go to the <strong>Main Page</strong>.</li>
-            <li>Use the item search box to find the item quickly by name or SKU.</li>
-            <li>Select the item's edit action and update needed fields (name, SKU, costs, stock settings, codes).</li>
-            <li>Save changes and confirm the success message.</li>
-          </ol>
-          <p class="helper">Tip: Keep SKU and QR values unique to avoid update conflicts.</p>
-        </section>
-
-        <section id="issue-items" class="panel stack wide howto-section">
-          <h2>3) Issue items to stations</h2>
-          <ol>
-            <li>Open the <strong>Issue Page</strong> to view station requests.</li>
-            <li>Select a station with active requests (highlighted in red).</li>
-            <li>Issue requested items by selecting/scanning the correct inventory items and quantities.</li>
-            <li>Confirm completion to record transaction history and reduce main inventory totals.</li>
-          </ol>
-          <p class="helper">Tip: Review remaining quantities in station requests before finalizing.</p>
+          <p class="helper">Best practice: only use this page for items that do not already exist. If the item exists, use Restock instead.</p>
         </section>
 
         <section id="restock-items" class="panel stack wide howto-section">
-          <h2>4) Restock existing items</h2>
+          <div class="howto-section__header">
+            <p class="eyebrow">Stock increase</p>
+            <h2>Restock an existing item</h2>
+          </div>
           <ol>
-            <li>Open the <strong>Restock Page</strong>.</li>
-            <li>Scan an item barcode or QR code to load item details.</li>
-            <li>If scanned by QR, optionally scan a new barcode to attach it to the item record.</li>
-            <li>Enter quantity being restocked and optional unit cost updates.</li>
-            <li>Enter date/time and <strong>Completed by</strong>, then submit the restock.</li>
+            <li>Open <strong>Restock Page</strong>.</li>
+            <li>Scan or type the item barcode or QR code to load the selected item.</li>
+            <li>If the item was found by QR code, optionally scan a new barcode to attach that barcode to the item record.</li>
+            <li>Enter the restock quantity and optional updated unit cost.</li>
+            <li>Confirm the current stock shown on the page looks correct before submitting.</li>
+            <li>Enter date/time, <strong>Completed by</strong>, and optional notes, then select <strong>Restock inventory</strong>.</li>
           </ol>
-          <p class="helper">Tip: Use notes for purchase order numbers or delivery references.</p>
+          <p class="helper">Best practice: add delivery ticket numbers, purchase order numbers, or vendor references in Notes when available.</p>
+        </section>
+
+        <section id="station-requests" class="panel stack wide howto-section">
+          <div class="howto-section__header">
+            <p class="eyebrow">Station users</p>
+            <h2>Submit or manage station requests</h2>
+          </div>
+          <ol>
+            <li>Open the station request page for the correct station.</li>
+            <li>Select <strong>Request item</strong>, add each requested item and quantity, and submit the request.</li>
+            <li>If an open request changes, use <strong>Modify request</strong> to update quantities or add/remove items. Enter who made the change and the reason.</li>
+            <li>If supplies are no longer needed, use <strong>Cancel request</strong> and enter who canceled it and why.</li>
+            <li>Watch the status colors: red/pink means pending, yellow means partially completed, green means completed, and gray means canceled.</li>
+          </ol>
+          <p class="helper">Best practice: request the specific item name and purpose so supply staff can match the request to the right inventory item.</p>
+        </section>
+
+        <section id="issue-items" class="panel stack wide howto-section">
+          <div class="howto-section__header">
+            <p class="eyebrow">Stock decrease</p>
+            <h2>Issue items to a station</h2>
+          </div>
+          <ol>
+            <li>Open <strong>Issue Page</strong>.</li>
+            <li>Use <strong>Print all requested items</strong> if you need a pull list before collecting supplies.</li>
+            <li>Select a station with active requests. Red stations have items waiting to be fulfilled.</li>
+            <li>Review each requested item, verify the quantity to issue, and scan/select the matching inventory item when prompted.</li>
+            <li>If a requested item is not currently in inventory, use the add-missing-item flow from the issue screen before issuing it.</li>
+            <li>Review the issue summary, then submit. The transaction history is saved and inventory totals are reduced for newly issued stock.</li>
+          </ol>
+          <p class="helper">Best practice: do not submit until the pulled items and quantities match what will physically leave inventory.</p>
         </section>
 
         <section id="search-usage" class="panel stack wide howto-section">
-          <h2>5) Search usage, trends, and exports</h2>
+          <div class="howto-section__header">
+            <p class="eyebrow">Reporting</p>
+            <h2>Search usage and export reports</h2>
+          </div>
           <ol>
             <li>Open <strong>Search Page</strong>.</li>
-            <li>Choose a date range and optional filters (station, item, keywords).</li>
-            <li>Click <strong>Search</strong> to refresh item usage, station usage, and trend sections.</li>
-            <li>Pick an export format and click <strong>Download export</strong> for reporting.</li>
+            <li>Choose a quick time range or enter custom start and end dates.</li>
+            <li>Use the search box, station filter, or item filter to narrow results.</li>
+            <li>Select <strong>Search</strong> to refresh usage by item, usage by station, usage trend, and transaction rows.</li>
+            <li>Choose a chart type, metric, and trend grouping for visual review.</li>
+            <li>Select an export format, then choose <strong>Download export</strong> for CSV, TSV, XLSX, PDF, or JSON reporting.</li>
           </ol>
-          <p class="helper">Tip: Use 30-day and 90-day views to compare short-term spikes vs longer trends.</p>
+          <p class="helper">Best practice: use year-to-date for budget reporting and 30/60/90-day ranges for short-term supply planning.</p>
+        </section>
+
+        <section id="data-quality" class="panel stack wide howto-section">
+          <div class="howto-section__header">
+            <p class="eyebrow">Accuracy</p>
+            <h2>Data quality checklist</h2>
+          </div>
+          <ul class="howto-checklist">
+            <li>Use one clear item name per item type and avoid duplicate records.</li>
+            <li>Keep QR codes unique. Do not reuse an old QR label for a different item.</li>
+            <li>Enter unit cost when known so usage reports can calculate cost used.</li>
+            <li>Set a practical low-stock / reorder level so the Shopping List stays useful.</li>
+            <li>Always fill in <strong>Completed by</strong> so transaction history is traceable.</li>
+            <li>Use notes for context that another supply officer may need later.</li>
+          </ul>
+        </section>
+
+        <section id="troubleshooting" class="panel stack wide howto-section">
+          <div class="howto-section__header">
+            <p class="eyebrow">Help</p>
+            <h2>Troubleshooting</h2>
+          </div>
+          <dl class="howto-faq">
+            <dt>The scanner will not open.</dt>
+            <dd>Confirm the browser has camera permission. If scanning still fails, type the code manually into the code field.</dd>
+            <dt>The item cannot be found during restock or issue.</dt>
+            <dd>Search the Main Page by item name or SKU. If the item is truly new, add it through Inventory Actions or the missing-item flow during issuing.</dd>
+            <dt>A station request is wrong.</dt>
+            <dd>Use Modify request for quantity or item changes. Use Cancel request only when the station no longer needs the supplies.</dd>
+            <dt>Reports do not show the expected transaction.</dt>
+            <dd>Reset filters, confirm the date range includes the transaction date, and check whether station or item filters are limiting the results.</dd>
+          </dl>
         </section>
       </main>
     </div>
