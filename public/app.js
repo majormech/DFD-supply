@@ -70,10 +70,12 @@ function normalizeRequestedItems(items) {
       const quantity = Number.parseInt(item?.quantity || 0, 10);
       const issuedQuantity = Number.parseInt(item?.issuedQuantity || 0, 10);
       if (!name || quantity <= 0) return null;
+     const issueNote = String(item?.issueNote || item?.note || '').trim();
       return {
         name,
         quantity,
         issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+        ...(issueNote ? { issueNote } : {}),
       };
     })
     .filter(Boolean);
@@ -88,14 +90,21 @@ function normalizeOtherRequestedItems(items) {
       const quantity = Number.parseInt(item?.quantity || 0, 10);
       const issuedQuantity = Number.parseInt(item?.issuedQuantity || 0, 10);
       if (!name || !purpose || quantity <= 0) return null;
+      const issueNote = String(item?.issueNote || item?.note || '').trim();
       return {
         name,
         purpose,
         quantity,
         issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+        ...(issueNote ? { issueNote } : {}),
       };
     })
     .filter(Boolean);
+}
+
+function renderIssueNote(item) {
+  const note = String(item?.issueNote || '').trim();
+  return note ? ` <span class="helper issue-note">${escapeHtml(note)}</span>` : '';
 }
 
 function normalizeSuggestionText(value) {
@@ -354,14 +363,14 @@ function requestDetails(request) {
        ? `<ul>${requestedItems.map((item) => {
          const fulfilled = item.issuedQuantity >= item.quantity;
          const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
-         return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}</li>`;
+         return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}${renderIssueNote(item)}</li>`;
        }).join('')}</ul>`
     : '<p class="helper">No inventory items listed.</p>';
  const nonInventorySummary = nonInventoryItems.length
     ? `<ul>${nonInventoryItems.map((item) => {
       const fulfilled = item.issuedQuantity >= item.quantity;
       const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
-      return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})${fulfilled ? '' : ` · remaining ${remaining}`}</span></li>`;
+      return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : ''}${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})${fulfilled ? '' : ` · remaining ${remaining}`}</span>${renderIssueNote(item)}</li>`;
     }).join('')}</ul>`
     : '<p class="helper">No off-list items listed.</p>';
 
@@ -1046,7 +1055,7 @@ function renderIssuePage() {
               ${items.map((item) => {
                 const fulfilled = (item.issuedQuantity || 0) >= item.quantity;
                 const remaining = Math.max(0, item.quantity - (item.issuedQuantity || 0));
-                return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : '⬜ '}${escapeHtml(item.name)}: <strong>${item.quantity}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}</li>`;
+                return `<li class="${fulfilled ? 'issued-line' : ''}">${fulfilled ? '✅ ' : '⬜ '}${escapeHtml(item.name)}: <strong>${item.quantity}</strong>${fulfilled ? '' : ` <span class="helper">(remaining ${remaining})</span>`}${renderIssueNote(item)}</li>`;
               }).join('')}
             </ul>
           </article>
@@ -1280,7 +1289,8 @@ function buildRequestedItemsForStation(stationId) {
         issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
         remainingQuantity: remaining,
         available: Number.parseInt(inventoryItem?.total_quantity || 0, 10),
-      purpose: '',
+        issueNote: String(entry.issueNote || '').trim(),
+        purpose: '',
         isNonInventory: false,
       };
     });
@@ -1299,6 +1309,7 @@ function buildRequestedItemsForStation(stationId) {
         issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
         remainingQuantity: remaining,
         available: 0,
+        issueNote: String(entry.issueNote || '').trim()
         purpose: String(entry.purpose || '').trim(),
         isNonInventory: true,
       };
@@ -1317,7 +1328,7 @@ function openIssueItemsModal(stationId) {
   
  const requestedItems = buildRequestedItemsForStation(stationId);
   const issueEntries = requestedItems
-    .filter((item) => item.itemId && item.available > 0)
+    .filter((item) => item.itemId && item.remainingQuantity > 0)
     .map((item) => ({
       requestId: item.requestId,
       itemId: item.itemId,
@@ -1329,6 +1340,8 @@ function openIssueItemsModal(stationId) {
       issueQuantity: item.remainingQuantity > 0 ? Math.min(Math.max(1, item.remainingQuantity), item.available) : 0,
       isComplete: item.remainingQuantity <= 0,
       markedUnable: false,
+      markedAlreadyIssued: false,
+      issueNote: item.issueNote || '',
       isPartialRequest: item.issuedQuantity > 0 && item.remainingQuantity > 0,
       code: '',
            source: 'request',
@@ -1401,13 +1414,19 @@ function openIssueItemsModal(stationId) {
   const renderIssueItems = () => {
     issueItemsEl.innerHTML = issueEntries.length
       ? issueEntries.map((item, index) => `
-       <article class="issue-entry ${item.isPartialRequest ? 'issue-entry--partial' : ''} ${item.markedUnable ? 'issue-entry--unable' : ''}" data-index="${index}">
+       <article class="issue-entry ${item.isPartialRequest ? 'issue-entry--partial' : ''} ${item.markedUnable ? 'issue-entry--unable' : ''} ${item.markedAlreadyIssued ? 'issue-entry--already-issued' : ''}" data-index="${index}">
           <div class="issue-entry__header">
             <strong class="${item.isComplete ? 'issued-line' : ''}">${escapeHtml(item.itemName)}</strong>
-            <label class="checkbox-label issue-entry__unable-toggle">
-              <input type="checkbox" data-field="unableToIssue" ${item.isComplete || item.markedUnable ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
-              ${item.isComplete ? 'Issued' : 'Unable to issue'}
-            </label>
+            <div class="issue-entry__toggles">
+              <label class="checkbox-label issue-entry__unable-toggle">
+                <input type="checkbox" data-field="unableToIssue" ${item.isComplete || item.markedUnable ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
+                ${item.isComplete ? 'Issued' : 'Unable to issue'}
+              </label>
+              <label class="checkbox-label issue-entry__already-issued-toggle">
+                <input type="checkbox" data-field="alreadyIssuedNotPickedUp" ${item.markedAlreadyIssued ? 'checked' : ''} ${item.isComplete ? 'disabled' : ''} />
+                Already issued / not picked up
+              </label>
+            </div>
           </div>
           <div class="issue-entry__meta helper">
             ${item.source === 'request' ? '<span>Loaded from request queue</span>' : ''}
@@ -1420,8 +1439,10 @@ function openIssueItemsModal(stationId) {
             <span><strong>In stock:</strong> ${item.available}</span>
           </div>
           ${item.markedUnable ? '<div class="helper">Marked as unable to issue for this submission.</div>' : ''}
+          ${item.markedAlreadyIssued ? '<div class="helper">This item was issued already in a previous request, but the items have not been picked up. Inventory stock will not be reduced again.</div>' : ''}
+          ${item.issueNote && !item.markedAlreadyIssued ? `<div class="helper issue-note">${escapeHtml(item.issueNote)}</div>` : ''}
           <label class="issue-entry__qty">Quantity to issue
-            <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete || item.markedUnable ? 'disabled' : ''} />
+            <input type="number" min="1" max="${Math.max(1, Math.min(item.available, item.remainingQuantity || item.available))}" value="${item.issueQuantity}" data-field="issueQty" ${item.isComplete || item.markedUnable || item.markedAlreadyIssued ? 'disabled' : ''} />
           </label>
           </article>
       `).join('')
@@ -1580,6 +1601,8 @@ function openIssueItemsModal(stationId) {
           issueQuantity: Math.max(1, Math.min(entry.remainingQuantity, Number.parseInt(createdItem.total_quantity || 0, 10) || entry.remainingQuantity)),
           isComplete: entry.remainingQuantity <= 0,
           markedUnable: false,
+          markedAlreadyIssued: false,
+          issueNote: entry.issueNote || '',
           isPartialRequest: entry.issuedQuantity > 0 && entry.remainingQuantity > 0,
           code: createdItem.qr_code || '',
           source: 'request',
@@ -1641,6 +1664,8 @@ function openIssueItemsModal(stationId) {
         issueQuantity: 1,
         isComplete: false,
         markedUnable: false,
+        markedAlreadyIssued: false,
+        issueNote: '',
         isPartialRequest: false,
         code: trimmed,
         source: mode,
@@ -1700,12 +1725,26 @@ function openIssueItemsModal(stationId) {
 
   issueItemsEl.addEventListener('change', (event) => {
     const unableToggle = event.target.closest('[data-field="unableToIssue"]');
-    if (!unableToggle) return;
-    const row = unableToggle.closest('.issue-entry');
+    const alreadyIssuedToggle = event.target.closest('[data-field="alreadyIssuedNotPickedUp"]');
+    if (!unableToggle && !alreadyIssuedToggle) return;
+    const row = (unableToggle || alreadyIssuedToggle).closest('.issue-entry');
     const index = Number.parseInt(row?.dataset.index || '-1', 10);
     const entry = issueEntries[index];
     if (!entry || entry.isComplete) return;
-    entry.markedUnable = Boolean(unableToggle.checked);
+     if (unableToggle) {
+      entry.markedUnable = Boolean(unableToggle.checked);
+      if (entry.markedUnable) entry.markedAlreadyIssued = false;
+    }
+    if (alreadyIssuedToggle) {
+      entry.markedAlreadyIssued = Boolean(alreadyIssuedToggle.checked);
+      if (entry.markedAlreadyIssued) {
+        entry.markedUnable = false;
+        entry.issueQuantity = entry.remainingQuantity;
+        entry.issueNote = 'Item was issued already in a previous request, but the items have not been picked up.';
+      } else if (entry.issueNote === 'Item was issued already in a previous request, but the items have not been picked up.') {
+        entry.issueNote = '';
+      }
+    }
     renderIssueItems();
     refreshSubmitState();
   });
@@ -1735,13 +1774,18 @@ function openIssueItemsModal(stationId) {
     }
 
     const pendingEntries = issueEntries.filter((item) => !item.isComplete && !item.markedUnable);
-    const overLimit = pendingEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available || item.issueQuantity > item.remainingQuantity);
+   const stockIssueEntries = pendingEntries.filter((item) => !item.markedAlreadyIssued);
+    const alreadyIssuedEntries = pendingEntries.filter((item) => item.markedAlreadyIssued);
+    const overLimit = stockIssueEntries.find((item) => item.issueQuantity <= 0 || item.issueQuantity > item.available || item.issueQuantity > item.remainingQuantity);
     if (overLimit) {
       showToast(`Issue quantity for ${overLimit.itemName} must be between 1 and ${Math.min(overLimit.available, overLimit.remainingQuantity)}.`, true);
       return;
     }
 
- const summaryLines = pendingEntries.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`);
+const summaryLines = [
+      ...stockIssueEntries.map((item) => `${item.itemName}: issue ${item.issueQuantity}, new inventory level ${item.available - item.issueQuantity}`),
+      ...alreadyIssuedEntries.map((item) => `${item.itemName}: clear ${item.remainingQuantity} from request as already issued / not picked up (stock unchanged at ${item.available})`),
+    ];
     issueSummary.classList.remove('hidden');
     issueSummary.innerHTML = `<strong>Issue summary</strong><ul>${summaryLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
     const summary = summaryLines.join('\n');
@@ -1749,7 +1793,7 @@ function openIssueItemsModal(stationId) {
     if (!shouldSubmit) return;
 
     try {
-     for (const item of pendingEntries) {
+     for (const item of stockIssueEntries) {
         if (!item.itemId) continue;
         await fetchJson('/api/inventory/adjust', {
           method: 'POST',
@@ -1770,7 +1814,8 @@ function openIssueItemsModal(stationId) {
         .map((item) => ({
           requestId: item.requestId,
           itemName: item.itemName,
-          quantity: item.issueQuantity,
+          quantity: item.markedAlreadyIssued ? item.remainingQuantity : item.issueQuantity,
+          ...(item.issueNote ? { issueNote: item.issueNote } : {}),
         }));
       if (requestItemPayload.length) {
         await fetchJson('/api/requests/issue-items', {
@@ -2377,6 +2422,7 @@ target.innerHTML = requests.map((request) => {
         const safeQuantity = Number.isInteger(quantity) ? Math.max(0, quantity) : 0;
         return {
           name: item.name,
+          issueNote: item.issueNote || '',
           quantity: safeQuantity,
           issuedQuantity: safeIssuedQuantity,
           remaining: Math.max(0, safeQuantity - safeIssuedQuantity),
@@ -2392,6 +2438,7 @@ target.innerHTML = requests.map((request) => {
         const safeQuantity = Number.isInteger(quantity) ? Math.max(0, quantity) : 0;
         return {
           name: item.name,
+          issueNote: item.issueNote || '',
           quantity: safeQuantity,
           issuedQuantity: safeIssuedQuantity,
           remaining: Math.max(0, safeQuantity - safeIssuedQuantity),
@@ -2417,23 +2464,23 @@ target.innerHTML = requests.map((request) => {
               <div>
                 <p class="helper"><strong>Issued items</strong></p>
                 ${issuedItems.length
-                  ? `<ul>${issuedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.issuedQuantity)}</strong> issued${item.remaining > 0 ? ` <span class="helper">(${item.remaining} pending)</span>` : ''}</li>`).join('')}</ul>`
+                 ? `<ul>${issuedItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.issuedQuantity)}</strong> issued${item.remaining > 0 ? ` <span class="helper">(${item.remaining} pending)</span>` : ''}${renderIssueNote(item)}</li>`).join('')}</ul>`
                   : '<p class="helper">No items have been issued yet.</p>'}
               </div>
               <div>
                 <p class="helper"><strong>Pending fulfillment</strong></p>
                 ${pendingItems.length
-                  ? `<ul>${pendingItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.remaining)}</strong> pending <span class="helper">(${item.issuedQuantity} issued)</span></li>`).join('')}</ul>`
+                  ? `<ul>${pendingItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.remaining)}</strong> pending <span class="helper">(${item.issuedQuantity} issued)</span>${renderIssueNote(item)}</li>`).join('')}</ul>`
                   : '<p class="helper">All requested items have been fulfilled.</p>'}
               </div>
             </div>
           `
           : `
             <ul>
-              ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong></li>`).join('')}
+             ${items.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong>${renderIssueNote(item)}</li>`).join('')}
             </ul>
              ${nonInventoryItems.length
-              ? `<p class="helper"><strong>Items not on inventory list</strong></p><ul>${nonInventoryItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})</span></li>`).join('')}</ul>`
+              ? `<p class="helper"><strong>Items not on inventory list</strong></p><ul>${nonInventoryItems.map((item) => `<li>${escapeHtml(item.name)}: <strong>${escapeHtml(item.quantity)}</strong> <span class="helper">(for ${escapeHtml(item.purpose)})</span>${renderIssueNote(item)}</li>`).join('')}</ul>`
               : ''}
           `}
         <p class="helper">Requested: ${new Date(request.created_at).toLocaleString()} · by ${escapeHtml(request.requester_name)}</p>
