@@ -686,3 +686,109 @@ button.request-success {
   display: grid;
   gap: 8px;
 }
+
+.howto-layout {
+  align-items: start;
+}
+
+.howto-hero-card {
+  background: linear-gradient(135deg, #ffffff 0%, #eef5ff 100%);
+}
+
+.howto-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.howto-steps-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.howto-steps-grid strong {
+  color: var(--primary);
+}
+
+.howto-steps-grid span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.howto-toc {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.howto-toc a {
+  display: block;
+  min-height: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfcff;
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.howto-section {
+  gap: 14px;
+}
+
+.howto-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.howto-section ol,
+.howto-checklist {
+  margin: 0;
+  padding-left: 22px;
+  line-height: 1.6;
+}
+
+.howto-section li + li {
+  margin-top: 7px;
+}
+
+.howto-checklist li::marker {
+  color: var(--success);
+}
+
+.howto-faq {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.howto-faq dt {
+  font-weight: 800;
+}
+
+.howto-faq dd {
+  margin: 0 0 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+@media (max-width: 920px) {
+  .howto-steps-grid,
+  .howto-toc {
+    grid-template-columns: 1fr;
+  }
+
+  .howto-steps-grid article {
+    min-height: 0;
+  }
+}
