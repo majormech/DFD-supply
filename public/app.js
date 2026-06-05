@@ -1309,7 +1309,7 @@ function buildRequestedItemsForStation(stationId) {
         issuedQuantity: Number.isInteger(issuedQuantity) ? issuedQuantity : 0,
         remainingQuantity: remaining,
         available: 0,
-        issueNote: String(entry.issueNote || '').trim()
+        issueNote: String(entry.issueNote || '').trim(),
         purpose: String(entry.purpose || '').trim(),
         isNonInventory: true,
       };
