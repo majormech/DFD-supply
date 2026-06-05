@@ -596,6 +596,21 @@ button.request-success {
   white-space: nowrap;
 }
 
+.issue-entry__toggles {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.issue-entry__already-issued-toggle {
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.issue-note {
+  font-style: italic;
+}
+
 .issue-entry__counts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -623,6 +638,11 @@ button.request-success {
   border-color: #edbcbc;
 }
 
+.issue-entry--already-issued {
+  background: #eef6ff;
+  border-color: #91b8e8;
+}
+
 @media (max-width: 720px) {
   .scanner-modal {
     align-items: flex-start;
@@ -639,6 +659,10 @@ button.request-success {
     align-items: flex-start;
   }
 
+  .issue-entry__toggles {
+    justify-items: start;
+  }
+  
   .issue-entry__counts {
     grid-template-columns: 1fr;
   }
