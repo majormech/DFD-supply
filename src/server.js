@@ -98,10 +98,12 @@ function normalizeRequestedItems(items) {
       const quantity = Number.parseInt(entry?.quantity || 0, 10);
       const issuedQuantity = Number.parseInt(entry?.issuedQuantity || 0, 10);
       if (!name || quantity <= 0) return null;
+     const issueNote = String(entry?.issueNote || entry?.note || '').trim();
       return {
         name,
         quantity,
         issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+        ...(issueNote ? { issueNote } : {}),
       };
     })
     .filter(Boolean);
@@ -116,11 +118,13 @@ function normalizeOtherRequestedItems(items) {
         const quantity = Number.parseInt(entry?.quantity || 0, 10);
         const issuedQuantity = Number.parseInt(entry?.issuedQuantity || 0, 10);
         if (!name || !purpose || quantity <= 0) return null;
+        const issueNote = String(entry?.issueNote || entry?.note || '').trim();
         return {
           name,
           purpose,
           quantity,
           issuedQuantity: Math.max(0, Math.min(quantity, Number.isInteger(issuedQuantity) ? issuedQuantity : 0)),
+          ...(issueNote ? { issueNote } : {}),
         };
       })
       .filter(Boolean);
@@ -918,6 +922,7 @@ export async function issueStationRequestItems(request, env) {
         requestId: Number.parseInt(entry?.requestId, 10),
         itemName: String(entry?.itemName || '').trim(),
         quantity: Number.parseInt(entry?.quantity || 0, 10),
+        issueNote: String(entry?.issueNote || entry?.note || '').trim(),
       }))
       .filter((entry) => Number.isInteger(entry.requestId) && entry.requestId > 0 && entry.itemName && entry.quantity > 0)
     : [];
@@ -951,25 +956,31 @@ export async function issueStationRequestItems(request, env) {
     const normalizedOtherItems = normalizeOtherRequestedItems(parsedOtherItems);
     const updatesByName = entries.reduce((acc, entry) => {
       const key = entry.itemName.toLowerCase();
-      acc[key] = (acc[key] || 0) + entry.quantity;
+      if (!acc[key]) acc[key] = { quantity: 0, issueNote: '' };
+      acc[key].quantity += entry.quantity;
+      if (entry.issueNote) acc[key].issueNote = entry.issueNote;
       return acc;
     }, {});
 
     const nextItems = normalizedItems.map((item) => {
       const key = item.name.toLowerCase();
-      if (!updatesByName[key]) return item;
+      const update = updatesByName[key];
+      if (!update) return item;
       return {
         ...item,
-        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + updatesByName[key]),
+        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + update.quantity),
+        ...(update.issueNote ? { issueNote: update.issueNote } : {}),
       };
     });
 
     const nextOtherItems = normalizedOtherItems.map((item) => {
       const key = item.name.toLowerCase();
-      if (!updatesByName[key]) return item;
+      const update = updatesByName[key];
+      if (!update) return item;
       return {
         ...item,
-        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + updatesByName[key]),
+        issuedQuantity: Math.min(item.quantity, item.issuedQuantity + update.quantity),
+        ...(update.issueNote ? { issueNote: update.issueNote } : {}),
       };
     });
 
