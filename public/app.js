@@ -2777,6 +2777,12 @@ function openRequestItemModal(stationCode) {
       <label>Amount requesting
         <input type="number" min="1" value="1" name="requestQty" />
       </label>
+       ${stationCode === 'ST01' ? `
+        <label class="checkbox-label">
+          <input type="checkbox" name="issuedWhenRequested" />
+          Item was issued when requested
+        </label>
+      ` : ''}
       <div class="inline-actions">
         <button type="button" data-action="add">Add item</button>
         <button type="button" data-action="add-non-inventory" class="secondary">Item not on inventory list</button>
@@ -2807,6 +2813,15 @@ function openRequestItemModal(stationCode) {
         </div>
       </div>
       <div data-role="requestItems" class="stack compact"></div>
+       ${stationCode === 'ST01' ? `
+        <div data-role="issuedAuthorization" class="hidden restock-followup stack compact">
+          <strong>Authorization required</strong>
+          <p class="helper">One or more Station 1 items are marked as issued when requested. Enter the officer who authorized the items to be removed.</p>
+          <label>Authorizing officer
+            <input type="text" name="authorizedBy" placeholder="Battalion Chief, Assistant Chief, Acting Battalion Chief, etc." />
+          </label>
+        </div>
+      ` : ''}
     </div>
   `;
   document.body.appendChild(overlay);
@@ -2821,16 +2836,31 @@ function openRequestItemModal(stationCode) {
   const itemInfo = overlay.querySelector('[data-role="itemInfo"]');
   const qtyInput = overlay.querySelector('input[name="requestQty"]');
   const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
-  const nonInventoryForm = overlay.querySelector('[data-role="nonInventoryForm"]');
+  const issuedWhenRequestedInput = overlay.querySelector('input[name="issuedWhenRequested"]');
+  const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
+  const issuedAuthorization = overlay.querySelector('[data-role="issuedAuthorization"]');
+  const authorizedByInput = overlay.querySelector('input[name="authorizedBy"]');
   const nonInventoryNameInput = overlay.querySelector('input[name="nonInventoryName"]');
   const nonInventoryPurposeInput = overlay.querySelector('input[name="nonInventoryPurpose"]');
   const nonInventoryQtyInput = overlay.querySelector('input[name="nonInventoryQty"]');
   const cancelConfirm = overlay.querySelector('[data-role="cancelConfirm"]');
 
+ const updateIssuedAuthorizationVisibility = () => {
+    if (!issuedAuthorization) return;
+    const hasIssuedWhenRequested = addedItems.some((entry) => entry.issuedWhenRequested);
+    issuedAuthorization.classList.toggle('hidden', !hasIssuedWhenRequested);
+  };
+
   const renderAddedItems = () => {
     const inventoryList = addedItems.length
       ? `<div class="stack compact">${addedItems.map((entry, index) => `
           <div class="inline-actions">
+          ${stationCode === 'ST01' ? `
+              <label class="checkbox-label">
+                <input type="checkbox" data-role="inventory-item-issued" data-index="${index}" ${entry.issuedWhenRequested ? 'checked' : ''} />
+                Issued
+              </label>
+            ` : ''}
             <strong>${escapeHtml(entry.name)}</strong>
             <input type="number" min="1" value="${escapeHtml(entry.quantity)}" data-role="inventory-item-qty" data-index="${index}" aria-label="Requested quantity for ${escapeHtml(entry.name)}" />
             <button type="button" class="danger" data-action="remove-inventory-item" data-index="${index}">Remove</button>
@@ -2860,6 +2890,15 @@ function openRequestItemModal(stationCode) {
       });
     });
 
+    requestItemsEl.querySelectorAll('[data-role="inventory-item-issued"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const index = Number.parseInt(input.dataset.index || '-1', 10);
+        if (index < 0 || !addedItems[index]) return;
+        addedItems[index].issuedWhenRequested = input.checked;
+        updateIssuedAuthorizationVisibility();
+      });
+    });
+
     requestItemsEl.querySelectorAll('[data-role="non-inventory-item-qty"]').forEach((input) => {
       input.addEventListener('input', () => {
         const index = Number.parseInt(input.dataset.index || '-1', 10);
@@ -2886,6 +2925,8 @@ function openRequestItemModal(stationCode) {
         renderAddedItems();
       });
     });
+    
+    updateIssuedAuthorizationVisibility();
   };
 
   const renderManualItemList = () => {
@@ -2978,9 +3019,11 @@ function openRequestItemModal(stationCode) {
       showToast('Enter a valid quantity.', true);
       return;
     }
-    const existing = addedItems.find((item) => item.name === activeItem.name);
+   const issuedWhenRequested = Boolean(issuedWhenRequestedInput?.checked);
+    const existing = addedItems.find((item) => item.name === activeItem.name && Boolean(item.issuedWhenRequested) === issuedWhenRequested);
     if (existing) existing.quantity += qty;
-    else addedItems.push({ name: activeItem.name, quantity: qty });
+    else addedItems.push({ name: activeItem.name, quantity: qty, issuedWhenRequested });
+    if (issuedWhenRequestedInput) issuedWhenRequestedInput.checked = false;
     qtyInput.value = '1';
     activeItem = null;
     scannedCode = '';
@@ -3022,7 +3065,7 @@ function openRequestItemModal(stationCode) {
       if (selectedItem) {
         const existing = addedItems.find((item) => item.name === selectedItem.name);
         if (existing) existing.quantity += quantity;
-        else addedItems.push({ name: selectedItem.name, quantity });
+        else addedItems.push({ name: selectedItem.name, quantity, issuedWhenRequested: false });
         nonInventoryNameInput.value = '';
         nonInventoryPurposeInput.value = '';
         nonInventoryQtyInput.value = '1';
@@ -3044,11 +3087,20 @@ function openRequestItemModal(stationCode) {
 
   overlay.querySelector('[data-action="submit"]').addEventListener('click', async () => {
     const requesterName = requesterInput.value.trim();
+    const authorizedBy = String(authorizedByInput?.value || '').trim();
     const cleanedAddedItems = addedItems
-      .map((item) => ({
-        name: String(item.name || '').trim(),
-        quantity: Number.parseInt(item.quantity || 0, 10),
-      }))
+      .map((item) => {
+        const quantity = Number.parseInt(item.quantity || 0, 10);
+        const issuedWhenRequested = stationCode === 'ST01' && Boolean(item.issuedWhenRequested);
+        return {
+          name: String(item.name || '').trim(),
+          quantity,
+          ...(issuedWhenRequested ? {
+            issuedQuantity: quantity,
+            issueNote: `Issued when requested. Authorized by: ${authorizedBy}`,
+          } : {}),
+        };
+      })
       .filter((item) => item.name && item.quantity > 0);
     const cleanedAddedNonInventoryItems = addedNonInventoryItems
       .map((item) => ({
@@ -3063,6 +3115,11 @@ function openRequestItemModal(stationCode) {
     }
     if (!cleanedAddedItems.length && !cleanedAddedNonInventoryItems.length) {
       showToast('Add at least one item before submitting.', true);
+      return;
+    }
+    if (stationCode === 'ST01' && addedItems.some((item) => item.issuedWhenRequested) && !authorizedBy) {
+      showToast('Enter the officer who authorized the issued Station 1 items.', true);
+      authorizedByInput?.focus();
       return;
     }
     try {
