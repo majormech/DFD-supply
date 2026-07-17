@@ -780,15 +780,26 @@ export async function createStationRequest(request, env) {
   const station = await env.DB.prepare('SELECT id, name, code FROM stations WHERE code = ?').bind(stationCode).first();
   if (!station) return badRequest('Invalid station', 404);
 
-  const otherItemsJson = otherItems.length ? JSON.stringify(otherItems) : '';
+ const otherItemsJson = otherItems.length ? JSON.stringify(otherItems) : '';
+  const completedOnCreate = requestedItems.length > 0
+    && requestedItems.every((item) => item.issuedQuantity >= item.quantity)
+    && otherItems.every((item) => item.issuedQuantity >= item.quantity);
+  const completedBy = completedOnCreate
+    ? requestedItems.find((item) => item.issueNote)?.issueNote?.replace(/^Issued when requested\. Authorized by:\s*/i, '') || requesterName
+    : null;
 
   await env.DB.prepare(`
-    INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items)
-    VALUES (?, ?, ?, NULLIF(?, ''))
-  `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItemsJson).run();
+    INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items, completed_by, completed_at)
+    VALUES (?, ?, ?, NULLIF(?, ''), ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)
+  `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItemsJson, completedBy, completedBy).run();
 
   const settings = await getSettings(env.DB);
-  const lines = requestedItems.map((item) => `- ${item.name}: ${item.quantity}`).join('\n');
+  const lines = requestedItems.map((item) => {
+    const issuedSuffix = item.issuedQuantity > 0
+      ? ` (${item.issuedQuantity} issued${item.issueNote ? `; ${item.issueNote}` : ''})`
+      : '';
+    return `- ${item.name}: ${item.quantity}${issuedSuffix}`;
+  }).join('\n');
   const message = [
     `Station request submitted by ${requesterName}.`,
     `Station: ${station.name} (${station.code})`,
