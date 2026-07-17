@@ -764,6 +764,79 @@ async function sendRequestEmail(env, to, subject, text) {
   return { sent: true };
 }
 
+
+async function issueInventoryForStationRequestItems(db, station, requestedItems, issuedBy, notePrefix = 'Issued from station request') {
+  const issuedEntries = requestedItems
+    .map((item) => ({
+      name: String(item?.name || '').trim(),
+      quantity: Number.parseInt(item?.issuedQuantity || 0, 10),
+    }))
+    .filter((item) => item.name && Number.isInteger(item.quantity) && item.quantity > 0);
+
+  if (!issuedEntries.length) return [];
+
+  const issuedByName = issuedEntries.reduce((acc, entry) => {
+    const key = entry.name.toLowerCase();
+    if (!acc[key]) acc[key] = { name: entry.name, quantity: 0 };
+    acc[key].quantity += entry.quantity;
+    return acc;
+  }, {});
+
+  const resolvedItems = [];
+  for (const entry of Object.values(issuedByName)) {
+    const item = await db.prepare(`
+      SELECT id, name, total_quantity
+      FROM items
+      WHERE lower(name) = lower(?) AND deleted_at IS NULL
+      LIMIT 1
+    `).bind(entry.name).first();
+
+    if (!item) {
+      throw new Error(`Inventory item not found for issued request item: ${entry.name}.`);
+    }
+    if (Number.parseInt(item.total_quantity || 0, 10) < entry.quantity) {
+      throw new Error(`Not enough inventory for ${item.name}.`);
+    }
+
+    resolvedItems.push({ ...item, issueQuantity: entry.quantity });
+  }
+
+  const operations = [];
+  for (const item of resolvedItems) {
+    operations.push(
+      db.prepare(`
+        INSERT INTO station_inventory (station_id, item_id, quantity)
+        VALUES (?, ?, 0)
+        ON CONFLICT(station_id, item_id) DO NOTHING
+      `).bind(station.id, item.id),
+      db.prepare(`
+        UPDATE items
+        SET total_quantity = total_quantity - ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND total_quantity >= ?
+      `).bind(item.issueQuantity, item.id, item.issueQuantity),
+      db.prepare(`
+        UPDATE station_inventory
+        SET quantity = quantity + ?
+        WHERE station_id = ? AND item_id = ?
+      `).bind(item.issueQuantity, station.id, item.id),
+      db.prepare(`
+        INSERT INTO stock_transactions (item_id, station_id, quantity_delta, action_type, source, note, performed_by, created_at)
+        VALUES (?, ?, ?, 'issue', 'manual', ?, ?, CURRENT_TIMESTAMP)
+      `).bind(
+        item.id,
+        station.id,
+        -item.issueQuantity,
+        `${notePrefix}: ${station.name} (${station.code})`,
+        issuedBy,
+      ),
+    );
+  }
+
+  if (operations.length) await db.batch(operations);
+  return resolvedItems;
+}
+
 export async function createStationRequest(request, env) {
   const body = await parseBody(request);
   const stationCode = (body?.stationCode || '').trim();
@@ -788,7 +861,19 @@ export async function createStationRequest(request, env) {
     ? requestedItems.find((item) => item.issueNote)?.issueNote?.replace(/^Issued when requested\. Authorized by:\s*/i, '') || requesterName
     : null;
 
-  await env.DB.prepare(`
+  try {
+    await issueInventoryForStationRequestItems(
+      env.DB,
+      station,
+      requestedItems,
+      completedBy || requesterName,
+      'Issued when requested',
+    );
+  } catch (error) {
+    return badRequest(error.message, error.message.startsWith('Not enough inventory') ? 409 : 400);
+  }
+
+  await env.DB.pr
     INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items, completed_by, completed_at)
     VALUES (?, ?, ?, NULLIF(?, ''), ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)
   `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItemsJson, completedBy, completedBy).run();
