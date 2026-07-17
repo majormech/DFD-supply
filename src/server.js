@@ -873,7 +873,7 @@ export async function createStationRequest(request, env) {
     return badRequest(error.message, error.message.startsWith('Not enough inventory') ? 409 : 400);
   }
 
-  await env.DB.pr
+  await env.DB.prepare(`
     INSERT INTO station_requests (station_id, requester_name, requested_items_json, other_items, completed_by, completed_at)
     VALUES (?, ?, ?, NULLIF(?, ''), ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)
   `).bind(station.id, requesterName, JSON.stringify(requestedItems), otherItemsJson, completedBy, completedBy).run();
