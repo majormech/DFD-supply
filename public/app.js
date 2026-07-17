@@ -2826,7 +2826,7 @@ function openRequestItemModal(stationCode) {
   `;
   document.body.appendChild(overlay);
 
-   const close = () => overlay.remove();
+    const close = () => overlay.remove();
   const requesterInput = overlay.querySelector('input[name="requesterName"]');
   const noCodeInput = overlay.querySelector('input[name="noCode"]');
   const pickerBlock = overlay.querySelector('[data-role="pickerBlock"]');
@@ -2835,11 +2835,11 @@ function openRequestItemModal(stationCode) {
   const manualItemList = overlay.querySelector('[data-role="manualItemList"]');
   const itemInfo = overlay.querySelector('[data-role="itemInfo"]');
   const qtyInput = overlay.querySelector('input[name="requestQty"]');
-  const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
   const issuedWhenRequestedInput = overlay.querySelector('input[name="issuedWhenRequested"]');
   const requestItemsEl = overlay.querySelector('[data-role="requestItems"]');
   const issuedAuthorization = overlay.querySelector('[data-role="issuedAuthorization"]');
   const authorizedByInput = overlay.querySelector('input[name="authorizedBy"]');
+  const nonInventoryForm = overlay.querySelector('[data-role="nonInventoryForm"]');
   const nonInventoryNameInput = overlay.querySelector('input[name="nonInventoryName"]');
   const nonInventoryPurposeInput = overlay.querySelector('input[name="nonInventoryPurpose"]');
   const nonInventoryQtyInput = overlay.querySelector('input[name="nonInventoryQty"]');
